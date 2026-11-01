@@ -1,0 +1,9 @@
+[package]
+name = "dca-building-blocks"
+description = "Domain-Centric Architecture building blocks for Rust: the marker traits that make a type's role visible to the rule suite."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]

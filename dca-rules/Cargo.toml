@@ -1,0 +1,14 @@
+[package]
+name = "dca-rules"
+description = "Domain-Centric Architecture rule suite for Rust: the DCA rule ids, checked over the crate graph and the source."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cargo_metadata = "0.23.1"
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+quote = "1.0.47"
+serde_json = "1.0.154"
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }

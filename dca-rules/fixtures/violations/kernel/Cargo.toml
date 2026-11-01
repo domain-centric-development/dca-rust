@@ -1,0 +1,11 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.dca]
+layer = "shared-kernel"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
+alpha-domain = { path = "../alpha-domain" }

@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = ["dca-building-blocks", "dca-rules"]
+exclude = ["dca-rules/fixtures"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+publish = false

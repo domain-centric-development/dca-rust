@@ -1,0 +1,11 @@
+[package]
+name = "beta-api"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.dca]
+context = "beta"
+layer = "api"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }

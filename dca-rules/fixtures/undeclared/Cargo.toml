@@ -1,0 +1,7 @@
+# Never built: the rule suite reads it and expects every rule to fire.
+[workspace]
+resolver = "3"
+members = ["plain"]
+
+[workspace.metadata.dca]
+experimental = "all"

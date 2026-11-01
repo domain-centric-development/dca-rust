@@ -1,0 +1,7 @@
+# Never built: the rule suite reads it and expects no rule to find anything.
+[workspace]
+resolver = "3"
+members = ["alpha-domain", "alpha-application", "alpha-adapters", "bootstrap"]
+
+[workspace.metadata.dca]
+experimental = "all"

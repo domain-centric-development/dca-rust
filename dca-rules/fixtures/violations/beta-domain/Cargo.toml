@@ -1,0 +1,11 @@
+[package]
+name = "beta-domain"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.dca]
+context = "beta"
+layer = "domain"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
