@@ -36,7 +36,8 @@ These hold for anyone working in any of the DCA repositories — human or agent 
   levels, `selects`/`checks`, whether the suite implements it). It is written by
   `python3 dca-rules/mapping/map_rules.py ../dca-java/rules.json dca-rules/rules.json <implemented.json>` — titles
   and rationales come from the Java list, so an id keeps one meaning; the Rust readings live in the script.
-  Regenerate it with every rule change; a mapping that misses a Java id fails.
+  Regenerate it with every rule change; a mapping that misses a Java id fails. The knowledge catalog reads it
+  (a `## Rust reading` per rule node): regenerate the catalog after a change here, as after one in `dca-java`.
 - **A new rule** is a function in `dca-rules/src/rules/<set>.rs`, one line in `define_rules!` in
   `dca-rules/src/rules/mod.rs` (which also names its test in `dca_tests!()`), a violation in
   `dca-rules/fixtures/violations` and nothing that fires in `dca-rules/fixtures/conforming` — the fixture tests
