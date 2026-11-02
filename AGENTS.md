@@ -46,7 +46,7 @@ These hold for anyone working in any of the DCA repositories — human or agent 
   `Part` — no vocabulary of a sample.
 - **The building blocks have no dependencies.** `Timestamp` and `EventId` are their own values for that reason.
 - **Macros:** the suite reads source, not expanded code. A trait impl it must see (a role) is written out.
-- **Consumers:** the todo app at `~/Privat/samples/todo-rust` depends on both crates by path. A change to a rule
+- **Consumers:** the todo app the suite was proven on (outside this repository) depends on both crates by path. A change to a rule
   runs its architecture tests there too (`cargo nextest run -p arch-tests --profile ci`).
 
 ## Commit message format
