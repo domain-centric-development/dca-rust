@@ -1,5 +1,8 @@
 # dca-rust
 
+*Written with AI assistance — drafted mainly by Claude, reviewed and directed by Christoph Bloemer since
+2025. The architecture rules in this repository's tests are part of how that work is verified.*
+
 Architecture rules for Domain-Centric Architecture in Rust: the same rule ids as the Java and .NET suites,
 each held at the earliest level that can hold it — the crate graph, visibility, a trait bound, Clippy,
 cargo-deny, or a test over the crate graph and the source.
@@ -29,4 +32,15 @@ A violation fails its test with one line per finding, the rule id first:
 ```
 
 Experimental rules run only where `[workspace.metadata.dca] experimental` names them (`"all"` for every one).
-Unpublished; built and proven on a todo app.
+Not yet on crates.io; built and proven on a todo app.
+
+## Author
+
+**Christoph Bloemer** — [@chbloemer](https://github.com/chbloemer)
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Contributions are accepted under the MIT licence, and the copyright holder may additionally publish
+them under other licences (for example a documentation licence for prose).

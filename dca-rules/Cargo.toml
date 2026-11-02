@@ -3,6 +3,8 @@ name = "dca-rules"
 description = "Domain-Centric Architecture rule suite for Rust: the DCA rule ids, checked over the crate graph and the source."
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 version.workspace = true
 publish.workspace = true
 
