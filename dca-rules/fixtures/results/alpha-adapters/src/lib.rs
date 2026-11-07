@@ -13,13 +13,13 @@ pub mod incoming {
 
     /// Matches over variants it imported by name.
     pub mod web {
-        use alpha_application::check_part::CheckPartResult::{Accepted, Held};
+        use alpha_application::check_part::CheckPartResult::{Accepted, AlreadyChecked};
         use alpha_application::check_part::{CheckPartCommand, CheckPartInputPort};
 
         pub fn check(port: &dyn CheckPartInputPort, part: u64) -> u16 {
             match port.check(CheckPartCommand { part }) {
                 Accepted => 200,
-                Held => 423,
+                AlreadyChecked => 200,
             }
         }
     }

@@ -2275,12 +2275,12 @@
     {
       "set": "errors",
       "id": "DCA-ERR-008",
-      "title": "A closed use-case result must have at least one case marked as a refusal",
-      "rationale": "A use case answers with a closed result to return its expected refusals as cases the caller must handle; the refusal marker on those cases is what lets the transaction boundary roll a refusal back like a thrown failure. A closed result whose refusing cases are unmarked commits the writes made before the refusal, and one that refuses nothing is no closed result - the use case answers with a plain result",
+      "title": "Diagnostic: closed use-case results without a case marked as a refusal",
+      "rationale": "A closed result describes the outcomes a use case can answer with; some of them are refusals, some are not. A result may hold several outcomes of which none refuses - found or nothing found, sent or already sent - and that alone is reason enough to close it. The refusal marker on a case says the request was refused, a meaning the caller answers with or without a transaction, and it is what lets the transaction boundary roll a refusal back like a thrown failure. Whether a case refuses is domain knowledge the type does not show, so a closed result without any marked case is listed for a look, not failed: if one of its outcomes is a refusal and stays unmarked, the transaction commits the writes made before it",
       "selects": "Closed results in every application crate: an enum an input-port trait answers with - named in an associated-type binding of its bounds (Output = ...) or in a method's return type, through any wrapper such as Result - as DCA-ERR-006 finds them; an enum that implements std::error::Error, DomainFailure or UseCaseFailure is the failure side and not selected.",
-      "checks": "At least one variant carries a field whose type implements the building-block trait Refusal. A unit variant carries nothing and cannot be the refusing one: a refusing variant wraps a value of a type that implements Refusal, and the result enum implements ClosedResult, whose refusal() match the compiler checks for coverage and for the Refusal bound - that is what TransactionBoundary::in_transaction_closed rolls back on. A struct is no closed result; an empty selection passes.",
+      "checks": "Informational - lists every closed result none of whose variants carries a field whose type implements the building-block trait Refusal, and never fails. A unit variant carries nothing and cannot be the refusing one: a refusing variant wraps a value of a type that implements Refusal, and the result enum implements ClosedResult, whose refusal() match the compiler checks for coverage and for the Refusal bound - that is what TransactionBoundary::in_transaction_closed rolls back on. A listed result is not a finding by itself: one whose outcomes are all successes - found or nothing found - is correct as it is. A struct is no closed result.",
       "implementation": "rust",
-      "status": "enforced",
+      "status": "informational",
       "maturity": "experimental",
       "category": "lint-test",
       "enforcement": [

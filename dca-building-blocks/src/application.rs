@@ -103,10 +103,13 @@ pub trait OutputPortFailure: std::error::Error {}
 /// back. The rule for good code stays "decide, then write"; the roll-back is the net.
 pub trait Refusal {}
 
-/// A closed use-case result: an enum with at least one variant that refuses the request, and the
-/// one place that says which variant does. The match in [`ClosedResult::refusal`] is checked by the
-/// compiler twice over - it covers every variant, and it can only hand out a payload whose type is a
-/// [`Refusal`]. A closed result without a refusing variant is a plain result.
+/// A closed use-case result that refuses: an enum whose variants are the outcomes a use case can
+/// answer with, some of them refusals, and the one place that says which variant does. The match in
+/// [`ClosedResult::refusal`] is checked by the compiler twice over - it covers every variant, and it
+/// can only hand out a payload whose type is a [`Refusal`]. A closed result may also hold only
+/// outcomes that are not refusals - found or nothing found, sent or already sent; it is a closed
+/// result all the same, carries no [`Refusal`] and needs no roll-back, so it need not implement
+/// this trait.
 pub trait ClosedResult {
     /// The refusal this result holds, or `None` for a success.
     fn refusal(&self) -> Option<&dyn Refusal>;

@@ -38,11 +38,11 @@ pub mod check_part {
         pub part: u64,
     }
 
-    /// A closed result returned by a method of the port's own - no variant carries a refusal
-    /// (DCA-ERR-008).
+    /// A closed result returned by a method of the port's own, whose outcomes are both successes:
+    /// no variant carries a refusal, and none should (DCA-ERR-008 lists it, never fails).
     pub enum CheckPartResult {
         Accepted,
-        Held,
+        AlreadyChecked,
     }
 
     pub trait CheckPartInputPort: InputPort {

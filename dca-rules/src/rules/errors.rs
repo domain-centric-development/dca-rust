@@ -202,8 +202,10 @@ pub fn err_006(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-/// A closed result an input port answers with has at least one variant that refuses: a variant
-/// carrying a value whose type implements `Refusal`. A closed result without one is a plain result.
+/// Diagnostic: lists every closed result an input port answers with none of whose variants carries
+/// a value whose type implements `Refusal`. A closed result may hold only outcomes that are not
+/// refusals; whether a variant refuses is domain knowledge the type does not show, so the rule asks
+/// rather than fails.
 pub fn err_008(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (d, variants) in closed_results(ws) {
@@ -234,8 +236,8 @@ pub fn err_008(ws: &Workspace) -> Vec<Violation> {
                 d,
                 format!(
                     "closed result `{}` answers with {:?} and none of its variants carries a \
-                     Refusal - give each refusing variant a value whose type implements Refusal, or \
-                     answer with a plain result",
+                     Refusal - check: is none of these outcomes a refusal? If one is, give it a value \
+                     whose type implements Refusal, or the transaction commits when it is returned",
                     ws.decl_name(d),
                     variants
                 ),

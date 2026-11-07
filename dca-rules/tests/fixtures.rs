@@ -111,14 +111,27 @@ fn a_match_over_a_closed_result_counts_as_translation() {
     );
 }
 
-/// DCA-ERR-008 asks a closed result for a variant carrying a Refusal; one that has it passes.
+/// DCA-ERR-008 lists a closed result without a variant carrying a Refusal and never fails; one
+/// that has such a variant is not listed.
 #[test]
-fn a_closed_result_needs_a_refusing_variant() {
+fn a_closed_result_without_a_refusing_variant_is_listed_not_failed() {
     let ws = fixture("results");
+    match run(&ws, "DCA-ERR-008") {
+        Outcome::Ran { informational, .. } => {
+            assert!(informational, "DCA-ERR-008 is a diagnostic")
+        }
+        other => panic!("DCA-ERR-008 did not run: {other:?}"),
+    }
     let listed = violations(&ws, "DCA-ERR-008");
     assert!(
         listed.iter().any(|line| line.contains("`CheckPartResult`")),
-        "unit variants, none marked: {listed:?}"
+        "two successes, none marked: {listed:?}"
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|line| line.contains("is none of these outcomes a refusal")),
+        "{listed:?}"
     );
     assert!(
         !listed.iter().any(|line| line.contains("`AddPartResult`")),
