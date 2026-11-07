@@ -180,3 +180,26 @@ impl DomainEvent for ThingEvents {
     fn event_id(&self) -> EventId { todo!() }
     fn occurred_on(&self) -> Timestamp { todo!() }
 }
+
+/// DCA-ERR-009: a domain failure only a use case can raise - the domain never searches.
+#[derive(Debug)]
+pub enum ThingRefused {
+    Unknown(u128),
+    Gone,
+}
+impl std::fmt::Display for ThingRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) }
+}
+impl std::error::Error for ThingRefused {}
+impl DomainFailure for ThingRefused {}
+
+/// DCA-TAC-025: a yes/no fact kept in a private `bool` field passes; a `bool` parameter and a `pub`
+/// `bool` field are flag arguments.
+pub struct Lamp {
+    lit: bool,
+    pub dimmed: bool,
+}
+impl Lamp {
+    pub fn switch(&mut self, lit: bool) { self.lit = lit; }
+    pub fn is_lit(&self) -> bool { self.lit }
+}

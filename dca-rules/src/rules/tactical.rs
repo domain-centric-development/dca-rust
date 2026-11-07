@@ -531,6 +531,22 @@ pub fn tac_025(ws: &Workspace) -> Vec<Violation> {
         }
         let mut seen: BTreeMap<String, ()> = BTreeMap::new();
         for f in ws.fields(d) {
+            // A single yes/no fact: the type is told to change it and answers it with a predicate.
+            // A `pub` struct field is one anyone may set - a flag argument in another spelling.
+            if is_bool(f.ty) {
+                if f.public && f.variant.is_none() {
+                    out.push(at(
+                        ws,
+                        "DCA-TAC-025",
+                        d,
+                        format!(
+                            "field `{}` is a public `bool` anyone may set - a flag argument; keep it private and name the behaviour that changes it",
+                            field_label(&f)
+                        ),
+                    ));
+                }
+                continue;
+            }
             if let Some(b) = bare_in(f.ty) {
                 let msg = format!(
                     "field `{}` is a bare `{b}`; give it a value type that says what it is",

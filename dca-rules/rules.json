@@ -872,10 +872,10 @@
     {
       "set": "tactical",
       "id": "DCA-TAC-025",
-      "title": "Domain types must not hold bare primitives, strings or time types",
-      "rationale": "A value with rules of its own - a postal code, a quantity, a status, a moment, an identifier - is a value object; held as a bare String, int, boolean, Instant or UUID its validation is repeated at every use or missing. A value object with several components holds value objects too; only a wrapper - a value of exactly one component - holds the primitive it wraps",
+      "title": "Domain types must not hold bare primitives, strings or time types; a boolean only as a field or a predicate",
+      "rationale": "A value with rules of its own - a postal code, a quantity, a moment, an identifier - is a value object; held as a bare String, int, Instant or UUID its validation is repeated at every use or missing. A value object with several components holds value objects too; only a wrapper - a value of exactly one component - holds the primitive it wraps. A single yes/no fact may stay a boolean field: the type is told (complete()) and answers (isCompleted()). A boolean parameter is a flag argument - setCompleted(true) lets the caller set the state instead of triggering the behaviour - and three or more states, or transitions with rules, are an enum or a value",
       "selects": "Types, fields and pub signatures in every domain crate, the shared kernel's included. Not selected: a single-field newtype that implements Value or Id, failures, and trait methods of a building block.",
-      "checks": "No field, parameter or return type, through generic arguments, is String, &str, a primitive other than bool as a return, a time type (std::time::SystemTime, chrono, time) or a bare Uuid.",
+      "checks": "No field, parameter or return type, through generic arguments, is String, &str, a primitive, a time type (std::time::SystemTime, chrono, time) or a bare Uuid. A private field of type bool - a single yes/no fact - and a bool return - a predicate - pass; a bool parameter and a pub bool struct field, flag arguments, do not.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -2178,10 +2178,10 @@
     {
       "set": "errors",
       "id": "DCA-ERR-002",
-      "title": "Domain and use-case exceptions reside in the layer whose failure they name",
+      "title": "Domain and port exceptions reside in the layer whose failure they name",
       "rationale": "The base type states which layer owns the failure; declaring it elsewhere puts the vocabulary of that layer outside it and lets an adapter invent failures the application never reports",
-      "selects": "Types that implement DomainFailure or UseCaseFailure.",
-      "checks": "A DomainFailure sits in a domain crate, a UseCaseFailure in an application crate.",
+      "selects": "Types that implement DomainFailure or a port failure (UseCaseFailure, OutputPortFailure, or the classification traits PortFailure and InputPortFailure).",
+      "checks": "A DomainFailure sits in a domain crate, a port failure in an application crate - an output port's failure beside the port, although the adapter that implements the port returns it.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -2194,10 +2194,10 @@
     {
       "set": "errors",
       "id": "DCA-ERR-003",
-      "title": "Failures declared in the application layer must implement UseCaseFailure",
-      "rationale": "A use case that cannot serve a request reports why through its type, so that one incoming adapter can map each outcome onto its protocol and another adapter can map the same outcome onto a different one",
+      "title": "Failures declared in the application layer must implement UseCaseFailure or OutputPortFailure",
+      "rationale": "A use case that cannot serve a request reports why through its type, so that one incoming adapter can map each outcome onto its protocol and another adapter can map the same outcome onto a different one; an output port that declares a failure in its contract names it the same way, so the use case can catch exactly that outcome",
       "selects": "Types in every application crate that implement std::error::Error and not DomainFailure.",
-      "checks": "Each implements UseCaseFailure.",
+      "checks": "Each implements UseCaseFailure or OutputPortFailure. Implementing only the classification traits PortFailure or InputPortFailure does not count: a type implements the leaf it is.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -2210,9 +2210,9 @@
     {
       "set": "errors",
       "id": "DCA-ERR-004",
-      "title": "Domain and use-case exceptions must not carry prohibited framework metadata",
+      "title": "Domain and port exceptions must not carry prohibited framework metadata",
       "rationale": "An exception of an inner layer that carries container, persistence or protocol metadata has decided how the outside answers it, which is the incoming adapter's decision and only its; an annotation that fixes the answer's status decides it for every protocol at once, including the ones the exception knows nothing about",
-      "selects": "Types that implement DomainFailure or UseCaseFailure.",
+      "selects": "Types that implement DomainFailure or a port failure.",
       "checks": "None implements a web framework's response trait (for example axum's IntoResponse): the domain and application crates do not depend on the framework, and the orphan rule refuses the impl in the adapters crate, where both trait and type are foreign. The adapter translates through its own type.",
       "implementation": "rust",
       "status": "enforced",
@@ -2227,9 +2227,9 @@
     {
       "set": "errors",
       "id": "DCA-ERR-005",
-      "title": "Domain and use-case exception names must stay in the language of their layer",
+      "title": "Domain and port exception names must stay in the language of their layer",
       "rationale": "A failure named after a transport concept is a decision about the answer, taken in a layer that does not know the protocol; the name should say what went wrong, not what the caller should be told",
-      "selects": "Types that implement DomainFailure or UseCaseFailure.",
+      "selects": "Types that implement DomainFailure or a port failure (UseCaseFailure, OutputPortFailure).",
       "checks": "The name contains none of Http, StatusCode, ResponseStatus, Response. The suffix part of the Java rule does not apply: Rust names a failure ...Error by convention.",
       "implementation": "rust",
       "status": "enforced",
@@ -2244,9 +2244,9 @@
       "set": "errors",
       "id": "DCA-ERR-006",
       "title": "Diagnostic: incoming adapter packages that drive a use case without translating its failures",
-      "rationale": "A package that drives the application and knows neither failure type either lets everything escape to a generic handler or catches a generic type and answers every outcome the same way; whether it does is not visible in the import model",
-      "selects": "Modules in the incoming part of every adapters crate that call an input port.",
-      "checks": "Informational - lists a module when no item in it names a DomainFailure or UseCaseFailure type, and never fails.",
+      "rationale": "A package that drives the application and knows neither failure type nor a case of a closed result either lets everything escape to a generic handler or catches a generic type and answers every outcome the same way; whether it does is not visible in the import model. A use case may return its expected refusals as cases of a closed result instead of throwing them; a switch over those cases is the translation then. An adapter that names the abstract base of the port failures catches them generically and answers every outcome the same way",
+      "selects": "Modules in the incoming part of every adapters crate that name an input port.",
+      "checks": "Informational - lists a module when no item in it names a DomainFailure or UseCaseFailure type nor a variant of a closed result, and never fails. A closed result is an enum an input-port trait answers with - named in an associated-type binding of its bounds (Output = ...) or in a method's return type, through any wrapper such as Result. A variant counts when a path names it through its enum or through a use of it, so a match over the variants is seen; whether the match is exhaustive is left to the compiler. When the workspace has neither a failure type nor a closed result, nothing is listed. It also lists a module that names one of the classification traits PortFailure, InputPortFailure or OutputPortFailure itself - a bound or a trait object over the base is the generic handler that answers every outcome the same way.",
       "implementation": "rust",
       "status": "informational",
       "maturity": "released",
@@ -2254,14 +2254,14 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "errors",
       "id": "DCA-ERR-007",
       "title": "Diagnostic: failures that carry display data or objects instead of ids and figures",
       "rationale": "A failure carries ids and figures, never what a page shows. Its fields are the typed identities and the values the rule compared; a name or a description of the thing an id refers to is resolved by the translation site through the queries it already has. A failure that carries the name decides for every surface what it shows, and one that carries an aggregate or an entity hands the model out through the error path",
-      "selects": "Types that implement DomainFailure or UseCaseFailure, their fields and variant fields.",
+      "selects": "Types that implement DomainFailure or a port failure, their fields and variant fields.",
       "checks": "Informational - lists every field of type String, an aggregate or an entity, and never fails.",
       "implementation": "rust",
       "status": "informational",
@@ -2271,6 +2271,38 @@
         "source-test"
       ],
       "implemented": false
+    },
+    {
+      "set": "errors",
+      "id": "DCA-ERR-008",
+      "title": "A closed use-case result must have at least one case marked as a refusal",
+      "rationale": "A use case answers with a closed result to return its expected refusals as cases the caller must handle; the refusal marker on those cases is what lets the transaction boundary roll a refusal back like a thrown failure. A closed result whose refusing cases are unmarked commits the writes made before the refusal, and one that refuses nothing is no closed result - the use case answers with a plain result",
+      "selects": "Closed results in every application crate: an enum an input-port trait answers with - named in an associated-type binding of its bounds (Output = ...) or in a method's return type, through any wrapper such as Result - as DCA-ERR-006 finds them; an enum that implements std::error::Error, DomainFailure or UseCaseFailure is the failure side and not selected.",
+      "checks": "At least one variant carries a field whose type implements the building-block trait Refusal. A unit variant carries nothing and cannot be the refusing one: a refusing variant wraps a value of a type that implements Refusal, and the result enum implements ClosedResult, whose refusal() match the compiler checks for coverage and for the Refusal bound - that is what TransactionBoundary::in_transaction_closed rolls back on. A struct is no closed result; an empty selection passes.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
+    },
+    {
+      "set": "errors",
+      "id": "DCA-ERR-009",
+      "title": "A domain exception is constructed only in the domain layer",
+      "rationale": "The model refuses: a domain exception names a business rule the model itself broke off. A use case never invents one. A failure the use case finds - an output port returned nothing, the caller does not own what it names, a precondition on a second aggregate - is the application's, a case of its result or a use-case exception; dressed as a domain failure it claims a rule the model never checked, and the model cannot know what a search found",
+      "selects": "Every expression in a function body of a module outside the domain crates - application, adapters, api, infrastructure, bootstrap and unplaced crates; #[cfg(test)] items and test targets are not read: a struct literal, a call of a tuple struct or an enum variant, a unit struct or unit variant used as a value, a variant or tuple struct passed as a function, and a call of an associated function without a receiver that returns Self or the type itself, whose type implements DomainFailure.",
+      "checks": "None of them names a domain failure - only a domain crate constructs one. Self is not followed: a domain failure declared outside the domain is DCA-ERR-002's finding. A failure the application only passes on (a variant wrapping it, ? or map_err with a conversion) is not a construction. Constructions inside macro invocations, through From/Into conversions or a generic constructor are not seen. An empty selection passes.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
     },
     {
       "set": "rust",

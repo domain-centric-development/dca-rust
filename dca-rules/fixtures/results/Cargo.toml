@@ -1,0 +1,9 @@
+# Never built: DCA-ERR-006 reads it. A context whose use cases answer with a closed result - an enum
+# whose variants are the outcomes, expected refusals included - and incoming adapters that match over
+# the variants, that name neither a failure nor a variant, and that only hold the result.
+[workspace]
+resolver = "3"
+members = ["alpha-domain", "alpha-application", "alpha-adapters"]
+
+[workspace.metadata.dca]
+experimental = "all"

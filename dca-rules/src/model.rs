@@ -223,7 +223,10 @@ pub const ROLES: &[(&str, &[&str])] = &[
     ("Factory", &[]),
     ("Specification", &[]),
     ("DomainFailure", &[]),
-    ("UseCaseFailure", &[]),
+    ("PortFailure", &[]),
+    ("InputPortFailure", &["PortFailure"]),
+    ("UseCaseFailure", &["InputPortFailure"]),
+    ("OutputPortFailure", &["PortFailure"]),
     ("OpenHostService", &[]),
     ("InputPort", &[]),
     ("UseCase", &["InputPort"]),
@@ -233,6 +236,8 @@ pub const ROLES: &[(&str, &[&str])] = &[
     ("DomainEventPublisher", &["OutputPort"]),
     ("IntegrationEventPublisher", &["OutputPort"]),
     ("TransactionBoundary", &[]),
+    ("Refusal", &[]),
+    ("ClosedResult", &[]),
 ];
 
 fn role_closure(name: &str) -> Vec<String> {

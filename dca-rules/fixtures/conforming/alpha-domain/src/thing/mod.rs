@@ -31,12 +31,13 @@ impl Value for Label {}
 pub struct Thing {
     id: ThingId,
     parts: Vec<Part>,
+    archived: bool,
     events: Vec<ThingEvent>,
 }
 
 impl Thing {
     pub fn create(id: ThingId, event: EventId, at: Timestamp) -> Thing {
-        Thing { id, parts: Vec::new(), events: vec![ThingEvent::ThingCreated(ThingCreated { event, thing: id, occurred_on: at })] }
+        Thing { id, parts: Vec::new(), archived: false, events: vec![ThingEvent::ThingCreated(ThingCreated { event, thing: id, occurred_on: at })] }
     }
 
     pub fn add_part(&mut self, part: PartId, label: Label, event: EventId, at: Timestamp) -> Result<(), ThingError> {
@@ -50,6 +51,14 @@ impl Thing {
 
     pub fn parts(&self) -> &[Part] {
         &self.parts
+    }
+
+    pub fn archive(&mut self) {
+        self.archived = true;
+    }
+
+    pub fn is_archived(&self) -> bool {
+        self.archived
     }
 }
 

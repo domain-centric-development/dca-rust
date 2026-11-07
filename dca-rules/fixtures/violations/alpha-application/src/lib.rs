@@ -142,3 +142,41 @@ pub mod lookup {
         }
     }
 }
+
+/// DCA-ERR-008: a closed result whose refusing variant carries no Refusal.
+pub mod hold_thing {
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+
+    pub struct HoldThingCommand {
+        pub thing: u64,
+    }
+
+    pub enum HoldThingResult {
+        Held(u64),
+        AlreadyHeld(u64),
+    }
+
+    pub trait HoldThingInputPort: InputPort {
+        fn hold(&self, command: HoldThingCommand) -> HoldThingResult;
+    }
+}
+
+/// DCA-ERR-003: implements the classification instead of a leaf.
+#[derive(Debug)]
+pub struct QuotaExceeded;
+impl std::error::Error for QuotaExceeded {}
+impl dca_building_blocks::application::InputPortFailure for QuotaExceeded {}
+
+/// DCA-ERR-009: a use case that invents a domain failure for what the repository did not find.
+pub mod remove_thing {
+    use alpha_domain::{Thing, ThingRefused};
+
+    pub struct RemoveThingUseCase;
+
+    impl RemoveThingUseCase {
+        pub fn remove(&self, id: u128, found: Option<Thing>) -> Result<(), ThingRefused> {
+            let _thing = found.ok_or_else(|| ThingRefused::Unknown(id))?;
+            Err(ThingRefused::Gone)
+        }
+    }
+}
