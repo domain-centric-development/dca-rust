@@ -103,6 +103,12 @@ pub struct Config {
     pub timestamp_types: BTreeSet<String>,
     /// Submodule of `incoming` that holds event consumers.
     pub event_consumer_module: String,
+    /// Types whose presence in a handler's signature declares a claims-only authorization (an
+    /// extractor such as `RequireRole<Staff>`). Empty by default.
+    pub authorization_extractors: BTreeSet<String>,
+    /// Functions whose call in a router's layer declares a claims-only authorization for the routes
+    /// added before it (`.route_layer(require_role(...))`). Empty by default.
+    pub authorization_layers: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +165,8 @@ impl Config {
                 .and_then(|x| x.as_str())
                 .unwrap_or("event")
                 .to_string(),
+            authorization_extractors: list("authorization-extractors", &[]),
+            authorization_layers: list("authorization-layers", &[]),
         }
     }
 }

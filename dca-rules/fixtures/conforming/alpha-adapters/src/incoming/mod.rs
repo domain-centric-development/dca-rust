@@ -13,3 +13,14 @@ pub fn add_part(port: &dyn AddPartInputPort, thing: u128, label: String) -> Part
         Err(AddPartError::Unavailable(_)) => PartResponse { status: 503 },
     }
 }
+
+/// A claims-only check declared in the signature: the extractor refuses a caller without the role
+/// before the handler runs.
+pub mod admin {
+    pub struct Accountant;
+    pub struct RequireRole<R>(pub R);
+
+    pub fn close_books(_gate: RequireRole<Accountant>) -> u16 {
+        200
+    }
+}

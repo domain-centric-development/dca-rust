@@ -243,3 +243,155 @@ pub fn hex_019(ws: &Workspace) -> Vec<Violation> {
         })
         .collect()
 }
+
+/// Whether a called name asks if the caller holds a role or an authority: `has_role`,
+/// `has_any_role`, `has_authority`, `has_any_authority`, `is_in_role`, `is_user_in_role`.
+fn asks_for_a_role(name: &str) -> bool {
+    let rest = name
+        .strip_prefix("has_any_")
+        .or_else(|| name.strip_prefix("has_"));
+    matches!(rest, Some("role" | "authority")) || name == "is_in_role" || name == "is_user_in_role"
+}
+
+/// The role questions a body asks: method calls and calls of a path, with their line.
+#[derive(Default)]
+struct RoleQuestions {
+    found: Vec<(String, usize)>,
+}
+
+impl<'ast> syn::visit::Visit<'ast> for RoleQuestions {
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        let name = call.method.to_string();
+        if asks_for_a_role(&name) {
+            self.found.push((name, call.method.span().start().line));
+        }
+        syn::visit::visit_expr_method_call(self, call);
+    }
+
+    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(p) = &*call.func
+            && let Some(last) = p.path.segments.last()
+            && asks_for_a_role(&last.ident.to_string())
+        {
+            self.found
+                .push((last.ident.to_string(), last.ident.span().start().line));
+        }
+        syn::visit::visit_expr_call(self, call);
+    }
+}
+
+/// The names of the functions a router routes behind a configured authorization layer: every path
+/// named in the receiver of a `.layer(...)` / `.route_layer(...)` call whose argument calls one of
+/// the layer functions - the routes added before the layer, as the router applies it.
+#[derive(Default)]
+struct LayeredHandlers<'a> {
+    layers: Option<&'a std::collections::BTreeSet<String>>,
+    handlers: std::collections::BTreeSet<String>,
+}
+
+impl<'ast> syn::visit::Visit<'ast> for LayeredHandlers<'_> {
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        let layers = self.layers.expect("layers set");
+        let is_layer = matches!(call.method.to_string().as_str(), "layer" | "route_layer");
+        let calls_a_configured_layer = call.args.iter().any(|a| {
+            let mut c = crate::model::PathCollector::default();
+            syn::visit::Visit::visit_expr(&mut c, a);
+            c.paths.iter().any(|p| {
+                p.segments
+                    .last()
+                    .is_some_and(|s| layers.contains(&s.ident.to_string()))
+            })
+        });
+        if is_layer && calls_a_configured_layer {
+            let mut c = crate::model::PathCollector::default();
+            syn::visit::Visit::visit_expr(&mut c, &call.receiver);
+            for p in &c.paths {
+                if let Some(s) = p.segments.last() {
+                    self.handlers.insert(s.ident.to_string());
+                }
+            }
+        }
+        syn::visit::visit_expr_method_call(self, call);
+    }
+}
+
+/// DCA-HEX-020 (experimental, informational). A check that reads nothing but the caller's roles is
+/// declared on the route - an extractor in the handler's signature or a layer on its route - not
+/// decided by a branch in the handler's own body.
+pub fn hex_020(ws: &Workspace) -> Vec<Violation> {
+    let extractors = &ws.config.authorization_extractors;
+    let layers = &ws.config.authorization_layers;
+    if extractors.is_empty() && layers.is_empty() {
+        return vec![];
+    }
+    let incoming = side_modules(ws, "incoming", false);
+    let mut layered = LayeredHandlers {
+        layers: Some(layers),
+        ..Default::default()
+    };
+    if !layers.is_empty() {
+        let crates: std::collections::BTreeSet<usize> =
+            incoming.iter().map(|m| ws.modules[*m].krate).collect();
+        for m in ws
+            .project_modules()
+            .filter(|m| crates.contains(&ws.modules[*m].krate))
+        {
+            for item in &ws.modules[m].items {
+                syn::visit::Visit::visit_item(&mut layered, item);
+            }
+        }
+    }
+    let declared = |sig: &syn::Signature| {
+        layered.handlers.contains(&sig.ident.to_string())
+            || sig.inputs.iter().any(|a| match a {
+                syn::FnArg::Typed(t) => super::type_idents(&t.ty)
+                    .iter()
+                    .any(|i| extractors.contains(i)),
+                syn::FnArg::Receiver(_) => false,
+            })
+    };
+    let declare = extractors
+        .iter()
+        .map(|e| format!("the extractor `{e}`"))
+        .chain(layers.iter().map(|l| format!("the layer `{l}`")))
+        .collect::<Vec<_>>()
+        .join(" or ");
+    let mut out = vec![];
+    for m in incoming {
+        let mut functions: Vec<(&syn::Signature, &syn::Block)> = vec![];
+        for item in &ws.modules[m].items {
+            match item {
+                syn::Item::Fn(f) => functions.push((&f.sig, &f.block)),
+                syn::Item::Impl(i) => {
+                    for ii in &i.items {
+                        if let syn::ImplItem::Fn(f) = ii {
+                            functions.push((&f.sig, &f.block));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (sig, block) in functions {
+            if declared(sig) {
+                continue;
+            }
+            let mut questions = RoleQuestions::default();
+            syn::visit::Visit::visit_block(&mut questions, block);
+            for (name, line) in questions.found {
+                out.push(at_line(
+                    ws,
+                    "DCA-HEX-020",
+                    m,
+                    &sig.ident.to_string(),
+                    line,
+                    format!(
+                        "`{}` reads the caller's roles through `{name}` in its own body; declare a claims-only check with {declare}, and leave a check that needs the stored data to the use case",
+                        sig.ident
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}

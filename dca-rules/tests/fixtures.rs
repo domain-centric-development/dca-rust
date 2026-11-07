@@ -229,3 +229,17 @@ fn an_owned_aggregate_is_loaded_through_its_owner() {
     );
     assert!(violations(&fixture("conforming"), "DCA-TAC-026").is_empty());
 }
+
+/// A handler that branches on the caller's role in its body is listed; one with the configured
+/// extractor in its signature and one routed behind the configured layer are not.
+#[test]
+fn a_claims_only_check_is_declared_on_the_route() {
+    let ws = fixture("violations");
+    let found = violations(&ws, "DCA-HEX-020");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].contains("`close_books` reads the caller's roles through `has_role`"),
+        "{found:?}"
+    );
+    assert!(violations(&fixture("conforming"), "DCA-HEX-020").is_empty());
+}

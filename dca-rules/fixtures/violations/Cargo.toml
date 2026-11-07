@@ -5,3 +5,6 @@ members = ["alpha-domain", "alpha-application", "alpha-adapters", "alpha-infrast
 
 [workspace.metadata.dca]
 experimental = "all"
+# DCA-HEX-020: the project's declarative forms of a claims-only check.
+authorization-extractors = ["RequireRole"]
+authorization-layers = ["require_role"]

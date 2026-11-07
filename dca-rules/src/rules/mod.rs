@@ -74,6 +74,7 @@ define_rules! { $;
     dca_hex_012 => "DCA-HEX-012" => hexagonal::hex_012,
     dca_hex_013 => "DCA-HEX-013" => hexagonal::hex_013,
     dca_hex_019 => "DCA-HEX-019" => hexagonal::hex_019,
+    dca_hex_020 => "DCA-HEX-020" => hexagonal::hex_020,
     dca_tac_001 => "DCA-TAC-001" => tactical::tac_001,
     dca_tac_002 => "DCA-TAC-002" => tactical::tac_002,
     dca_tac_003 => "DCA-TAC-003" => tactical::tac_003,

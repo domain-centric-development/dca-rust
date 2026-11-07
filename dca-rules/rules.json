@@ -506,6 +506,22 @@
       "implemented": true
     },
     {
+      "set": "hexagonal",
+      "id": "DCA-HEX-020",
+      "title": "Diagnostic: incoming adapters that read the caller's roles in their own code",
+      "rationale": "A check that reads nothing but the caller's roles or claims - is this caller staff? - is a property of the exposure and is declared on the route, with the framework's authorization annotation, where a reader of the route sees it and the framework answers an unauthenticated and an unauthorized caller apart. A branch on the caller's roles inside the adapter's code hides the gate and renders whatever status the branch writes. A check that needs the stored data - is this yours? - is not claims-only and belongs to the use case",
+      "selects": "Functions and methods in the incoming module of every adapters crate, and the router expressions of those crates. Nothing is selected when [workspace.metadata.dca] names neither authorization-extractors (types whose presence in a handler's signature declares a claims-only check, such as a RequireRole<R> extractor) nor authorization-layers (functions whose call in a router's .layer(...) or .route_layer(...) declares it for the routes added before it); both are empty by default.",
+      "checks": "Informational - lists every call in a body, as a method or as a path, named has_role, has_any_role, has_authority, has_any_authority, is_in_role or is_user_in_role, and never fails. A function whose signature names a configured extractor, or whose name appears in the receiver of a .layer(...)/.route_layer(...) call that calls a configured layer function within the same crate, is not listed. Not seen: a handler routed behind a layer in a router another crate builds, a role compared by the handler itself (roles.contains(...)), and a helper of the project's own declared outside the incoming module. Rust has no route annotation; the extractor and the layer are its declarative forms.",
+      "implementation": "rust",
+      "status": "informational",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
+    },
+    {
       "set": "tactical",
       "id": "DCA-TAC-001",
       "title": "Aggregate Roots must implement AggregateRoot<T, ID>",
