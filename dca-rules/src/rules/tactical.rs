@@ -583,3 +583,118 @@ pub fn tac_025(ws: &Workspace) -> Vec<Violation> {
     }
     out
 }
+
+/// The type an associated type binds in the `impl <role> for <decl>` block, e.g. `type OwnerId = X`.
+fn associated_type<'a>(
+    ws: &'a Workspace,
+    d: usize,
+    role: &str,
+    name: &str,
+) -> Option<(usize, &'a syn::Type)> {
+    for i in ws.impls.iter().filter(|i| i.self_decl == Some(d)) {
+        let Some(target) = &i.trait_target else {
+            continue;
+        };
+        if ws.building_block(target).as_deref() != Some(role) {
+            continue;
+        }
+        let syn::Item::Impl(block) = &ws.modules[i.module].items[i.item] else {
+            continue;
+        };
+        for item in &block.items {
+            if let syn::ImplItem::Type(t) = item
+                && t.ident == name
+            {
+                return Some((i.module, &t.ty));
+            }
+        }
+    }
+    None
+}
+
+/// The decl a type names at its outside, references and parentheses looked through.
+fn outer_decl(ws: &Workspace, m: usize, ty: &syn::Type) -> Option<usize> {
+    match ty {
+        syn::Type::Reference(r) => outer_decl(ws, m, &r.elem),
+        syn::Type::Paren(p) => outer_decl(ws, m, &p.elem),
+        syn::Type::Path(tp) if tp.qself.is_none() => match ws.resolve_path(m, &tp.path)? {
+            Target::Decl(d) => Some(d),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// DCA-TAC-026 (experimental). An aggregate that belongs to someone is found through its owner: its
+/// repository offers a lookup by the aggregate's id and the owner's id.
+pub fn tac_026(ws: &Workspace) -> Vec<Violation> {
+    let mut out = vec![];
+    let repositories: Vec<usize> = ws.traits_with_role("Repository").collect();
+    for d in ws
+        .type_decls()
+        .filter(|d| ws.has_role(*d, "Owned") && ws.has_role(*d, "AggregateRoot"))
+    {
+        let owner =
+            associated_type(ws, d, "Owned", "OwnerId").and_then(|(m, ty)| outer_decl(ws, m, ty));
+        let Some(owner) = owner else {
+            out.push(at(
+                ws,
+                "DCA-TAC-026",
+                d,
+                format!(
+                    "`{}` is owned but its `impl Owned` names no owner id type the suite can resolve; bind `type OwnerId` to the owner's id type",
+                    ws.decl_name(d)
+                ),
+            ));
+            continue;
+        };
+        let aggregate_id =
+            associated_type(ws, d, "Entity", "Id").and_then(|(m, ty)| outer_decl(ws, m, ty));
+        for r in repositories
+            .iter()
+            .copied()
+            .filter(|r| matches!(bound_aggregate(ws, *r), Some((_, Some(a))) if a == d))
+        {
+            let scoped = ws.trait_methods(r).iter().any(|m| {
+                let syn::ReturnType::Type(_, ret) = &m.sig.output else {
+                    return false;
+                };
+                let g = m.generics();
+                if !ws.type_decls_in(m.module, ret, &g).contains(&d) {
+                    return false;
+                }
+                let params: Vec<Option<usize>> = m
+                    .params()
+                    .into_iter()
+                    .map(|p| outer_decl(ws, m.module, p))
+                    .collect();
+                let Some(at_owner) = params.iter().position(|p| *p == Some(owner)) else {
+                    return false;
+                };
+                params.iter().enumerate().any(|(i, p)| {
+                    i != at_owner
+                        && match (p, aggregate_id) {
+                            (Some(p), Some(id)) => *p == id,
+                            (Some(p), None) => ws.has_role(*p, "Id"),
+                            _ => false,
+                        }
+                })
+            });
+            if !scoped {
+                out.push(at(
+                    ws,
+                    "DCA-TAC-026",
+                    r,
+                    format!(
+                        "repository `{}` declares no lookup taking `{}` and `{}` for the owned aggregate `{}`; add one such as find_by_id_for_owner(id, owner) and load the aggregate through it",
+                        ws.decl_name(r),
+                        aggregate_id.map_or("the aggregate's id", |id| ws.decl_name(id)),
+                        ws.decl_name(owner),
+                        ws.decl_name(d)
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}

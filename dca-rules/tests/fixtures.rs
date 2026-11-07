@@ -214,3 +214,18 @@ fn a_yes_no_fact_is_a_field_and_never_a_parameter() {
     );
     assert!(!lamp.iter().any(|line| line.contains("lit`")), "{lamp:?}");
 }
+
+/// An owned aggregate whose repository loads it by id alone is reported; the conforming one, with a
+/// lookup by its id and its keeper's id, is not.
+#[test]
+fn an_owned_aggregate_is_loaded_through_its_owner() {
+    let ws = fixture("violations");
+    let found = violations(&ws, "DCA-TAC-026");
+    assert!(
+        found.iter().any(|line| line.contains(
+            "repository `WrongRepository` declares no lookup taking `ThingId` and `KeeperId` for the owned aggregate `Thing`"
+        )),
+        "{found:?}"
+    );
+    assert!(violations(&fixture("conforming"), "DCA-TAC-026").is_empty());
+}

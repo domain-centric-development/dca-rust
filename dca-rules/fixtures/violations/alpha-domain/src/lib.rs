@@ -14,6 +14,12 @@ pub struct ThingId(u128);
 impl Value for ThingId {}
 impl Id for ThingId {}
 
+/// The one a thing belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct KeeperId(u128);
+impl Value for KeeperId {}
+impl Id for KeeperId {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OtherId(u128);
 impl Value for OtherId {}
@@ -50,6 +56,10 @@ impl Thing {
 impl Entity for Thing {
     type Id = ThingId;
     fn id(&self) -> &ThingId { &self.id }
+}
+/// Owned, but `WrongRepository` loads it by id alone.
+impl Owned for Thing {
+    type OwnerId = KeeperId;
 }
 impl AggregateRoot for Thing {
     type Event = ThingEvent;

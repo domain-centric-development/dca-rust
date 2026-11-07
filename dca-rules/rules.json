@@ -886,6 +886,23 @@
       "implemented": true
     },
     {
+      "set": "tactical",
+      "id": "DCA-TAC-026",
+      "title": "The repository of an owned aggregate declares a lookup by the aggregate's id and the owner's id",
+      "rationale": "An object loaded by its id alone is reachable by anyone who knows or guesses the id - the insecure direct object reference of broken access control (OWASP Top 10, A01). An aggregate marked as owned belongs to someone; its repository offers a lookup scoped to the owner, so a use case acting for a caller can load it through the caller and an unscoped lookup is never the only way in. Whether the use case calls the scoped lookup, and whether it proved the caller's right to a change of owner, is logic the rule does not see",
+      "selects": "Types that implement both Owned and AggregateRoot, each with the repository traits that bind it through Repository<T>. The owner id type is the type the impl Owned block binds to OwnerId (the trait requires it, and requires AggregateRoot as supertrait); the aggregate's id is the type its impl Entity binds to Id. An owned aggregate without a repository trait is not selected.",
+      "checks": "At least one method the repository trait declares itself takes a parameter whose type (through references) is the aggregate's id type and a further parameter whose type is the owner id type - either position, any name - and returns a type that names the aggregate, through Result, Option or another wrapper. A method that answers only yes or no does not count; the inherited find_by_id takes the id alone. An owner id type the suite cannot resolve (a type outside the workspace, a type alias) is reported. Whether a use case calls the scoped lookup is not checked; a lookup declared only in a generic intermediate trait is not seen. An empty selection passes.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "trait-bound",
+        "source-test"
+      ],
+      "implemented": true
+    },
+    {
       "set": "strategic",
       "id": "DCA-STR-001",
       "title": "Diagnostic: Display discovered bounded contexts",

@@ -6,12 +6,18 @@ pub use event::{PartAdded, ThingCreated, ThingEvent};
 pub use failure::ThingError;
 pub use part::Part;
 
-use dca_building_blocks::ddd::tactical::{AggregateRoot, Entity, EventId, Id, Timestamp, Value};
+use dca_building_blocks::ddd::tactical::{AggregateRoot, Entity, EventId, Id, Owned, Timestamp, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ThingId(u128);
 impl Value for ThingId {}
 impl Id for ThingId {}
+
+/// The one a thing belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KeeperId(u128);
+impl Value for KeeperId {}
+impl Id for KeeperId {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PartId(u128);
@@ -30,14 +36,15 @@ impl Value for Label {}
 #[derive(Debug, Clone)]
 pub struct Thing {
     id: ThingId,
+    keeper: KeeperId,
     parts: Vec<Part>,
     archived: bool,
     events: Vec<ThingEvent>,
 }
 
 impl Thing {
-    pub fn create(id: ThingId, event: EventId, at: Timestamp) -> Thing {
-        Thing { id, parts: Vec::new(), archived: false, events: vec![ThingEvent::ThingCreated(ThingCreated { event, thing: id, occurred_on: at })] }
+    pub fn create(id: ThingId, keeper: KeeperId, event: EventId, at: Timestamp) -> Thing {
+        Thing { id, keeper, parts: Vec::new(), archived: false, events: vec![ThingEvent::ThingCreated(ThingCreated { event, thing: id, occurred_on: at })] }
     }
 
     pub fn add_part(&mut self, part: PartId, label: Label, event: EventId, at: Timestamp) -> Result<(), ThingError> {
@@ -47,6 +54,10 @@ impl Thing {
         self.parts.push(Part::new(part, label));
         self.events.push(ThingEvent::PartAdded(PartAdded { event, thing: self.id, part, occurred_on: at }));
         Ok(())
+    }
+
+    pub fn keeper(&self) -> &KeeperId {
+        &self.keeper
     }
 
     pub fn parts(&self) -> &[Part] {
@@ -73,6 +84,10 @@ impl Entity for Thing {
     fn id(&self) -> &ThingId {
         &self.id
     }
+}
+
+impl Owned for Thing {
+    type OwnerId = KeeperId;
 }
 
 impl AggregateRoot for Thing {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use alpha_application::shared::ThingRepository;
-use alpha_domain::thing::{Thing, ThingId};
+use alpha_domain::thing::{KeeperId, Thing, ThingId};
 use dca_building_blocks::hexagonal::port_out::{OutputPort, PortError, Repository};
 
 #[derive(Default)]
@@ -26,4 +26,8 @@ impl Repository<Thing> for InMemoryThingRepository {
     }
 }
 
-impl ThingRepository for InMemoryThingRepository {}
+impl ThingRepository for InMemoryThingRepository {
+    fn find_by_id_for_keeper(&self, keeper: &KeeperId, id: &ThingId) -> Result<Option<Thing>, PortError> {
+        Ok(self.find_by_id(id)?.filter(|thing| thing.keeper() == keeper))
+    }
+}

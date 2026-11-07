@@ -96,6 +96,7 @@ define_rules! { $;
     dca_tac_023 => "DCA-TAC-023" => tactical::tac_023,
     dca_tac_024 => "DCA-TAC-024" => tactical::tac_024,
     dca_tac_025 => "DCA-TAC-025" => tactical::tac_025,
+    dca_tac_026 => "DCA-TAC-026" => tactical::tac_026,
     dca_str_002 => "DCA-STR-002" => graph::str_002,
     dca_str_003 => "DCA-STR-003" => graph::str_003,
     dca_str_004 => "DCA-STR-004" => graph::str_004,

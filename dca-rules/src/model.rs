@@ -217,6 +217,7 @@ pub const ROLES: &[(&str, &[&str])] = &[
     ("Id", &["Value"]),
     ("Entity", &[]),
     ("AggregateRoot", &["Entity"]),
+    ("Owned", &[]),
     ("DomainEvent", &[]),
     ("IntegrationEvent", &[]),
     ("DomainService", &[]),
