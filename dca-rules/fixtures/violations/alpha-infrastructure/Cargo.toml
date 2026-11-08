@@ -9,3 +9,4 @@ layer = "infrastructure"
 
 [dependencies]
 
+alpha-domain = { path = "../alpha-domain" }

@@ -1,6 +1,6 @@
 use core::fmt;
 
-use alpha_domain::thing::{Label, PartId, ThingError, ThingEvent, ThingId};
+use alpha_domain::thing::{Label, PartId, Sizing, ThingError, ThingEvent, ThingId};
 use dca_building_blocks::application::{TransactionBoundary, UseCaseFailure};
 use dca_building_blocks::hexagonal::port_in::{InputPort, UseCase};
 use dca_building_blocks::hexagonal::port_out::{DomainEventPublisher, PortError};
@@ -16,6 +16,7 @@ pub struct AddPartCommand {
 #[derive(Debug, Clone)]
 pub struct AddPartResult {
     pub part: PartId,
+    pub crowded: bool,
 }
 
 #[derive(Debug)]
@@ -48,11 +49,12 @@ pub struct AddPartUseCase<R, P, T, C, I> {
     transactions: T,
     clock: C,
     ids: I,
+    sizing: Sizing,
 }
 
 impl<R, P, T, C, I> AddPartUseCase<R, P, T, C, I> {
-    pub fn new(things: R, events: P, transactions: T, clock: C, ids: I) -> Self {
-        Self { things, events, transactions, clock, ids }
+    pub fn new(things: R, events: P, transactions: T, clock: C, ids: I, sizing: Sizing) -> Self {
+        Self { things, events, transactions, clock, ids, sizing }
     }
 }
 
@@ -76,7 +78,7 @@ where
             thing.add_part(part, label, self.ids.next_event_id(), self.clock.now()).map_err(AddPartError::Refused)?;
             self.things.save(&thing)?;
             self.events.publish_and_clear_events(&mut thing)?;
-            Ok(AddPartResult { part })
+            Ok(AddPartResult { part, crowded: self.sizing.is_crowded(&thing) })
         })
     }
 }

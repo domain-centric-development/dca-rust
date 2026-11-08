@@ -125,6 +125,7 @@ define_rules! { $;
     dca_adv_018 => "DCA-ADV-018" => events::adv_018,
     dca_adv_019 => "DCA-ADV-019" => events::adv_019,
     dca_adv_020 => "DCA-ADV-020" => events::adv_020,
+    dca_adv_021 => "DCA-ADV-021" => events::adv_021,
     dca_use_001 => "DCA-USE-001" => usecase::use_001,
     dca_use_002 => "DCA-USE-002" => usecase::use_002,
     dca_use_003 => "DCA-USE-003" => usecase::use_003,

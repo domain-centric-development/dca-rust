@@ -6,7 +6,7 @@ pub use event::{PartAdded, ThingCreated, ThingEvent};
 pub use failure::ThingError;
 pub use part::Part;
 
-use dca_building_blocks::ddd::tactical::{AggregateRoot, Entity, EventId, Id, Owned, Timestamp, Value};
+use dca_building_blocks::ddd::tactical::{AggregateRoot, DomainService, Entity, EventId, Id, Owned, Timestamp, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ThingId(u128);
@@ -102,5 +102,17 @@ impl AggregateRoot for Thing {
     }
     fn take_domain_events(&mut self) -> Vec<ThingEvent> {
         std::mem::take(&mut self.events)
+    }
+}
+
+/// A domain service: the use case asks it; the composition root only builds it (DCA-ADV-021).
+#[derive(Debug, Clone, Copy)]
+pub struct Sizing;
+
+impl DomainService for Sizing {}
+
+impl Sizing {
+    pub fn is_crowded(&self, thing: &Thing) -> bool {
+        thing.parts().len() > 1
     }
 }

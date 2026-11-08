@@ -1622,6 +1622,22 @@
       "implemented": true
     },
     {
+      "set": "advanced",
+      "id": "DCA-ADV-021",
+      "title": "Domain services are used only by the application and by other domain services",
+      "rationale": "A domain service holds logic that spans aggregates, and the use case decides when it runs and puts its outcome into the result. A model type, a read model, an adapter or the composition root that calls one takes that decision outside the application - the incoming adapter and the model type are each held by a narrower rule too (DCA-HEX-012, DCA-ADV-019)",
+      "selects": "Every function body - free functions and the methods of impl blocks - in every crate except the application crates, the impls of a type that implements DomainService excluded. A domain service is a type that implements DomainService, as DCA-ADV-010 selects it: Rust marks no module, so a module of free functions is no domain service by this rule.",
+      "checks": "No body names a type that implements DomainService as an expression (a struct literal, a unit value, an associated function), nor calls a method on a parameter, a local binding or a field of self whose type implements it, nor on one built in place. In an infrastructure or bootstrap crate - the composition root - a construction (a struct literal, a unit value, an associated function without a receiver that returns Self) passes; a call there is reported. A parameter or a field of that type alone is not reported; a call through a generic bound or a trait object is not seen.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
+    },
+    {
       "set": "usecase",
       "id": "DCA-USE-001",
       "title": "The base InputPort contract is not redeclared in the project",

@@ -78,3 +78,11 @@ pub mod outgoing {
     impl dca_building_blocks::application::OutputPortFailure for StoreRefusedThing {}
 }
 
+/// DCA-ADV-021: an outgoing adapter computes with a domain service while it writes.
+pub mod export {
+    use alpha_domain::Calculator;
+
+    pub fn export(calculator: &Calculator) {
+        calculator.calculate();
+    }
+}

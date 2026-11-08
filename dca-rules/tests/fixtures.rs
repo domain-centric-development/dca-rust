@@ -254,3 +254,18 @@ fn a_claims_only_check_is_declared_on_the_route() {
     );
     assert!(violations(&fixture("conforming"), "DCA-HEX-020").is_empty());
 }
+
+/// DCA-ADV-021: the model type, the outgoing adapter and the composition root's call are reported;
+/// the composition root's construction is not, nor anything in the conforming fixture, whose use
+/// case calls its domain service and whose bootstrap builds it.
+#[test]
+fn a_domain_service_is_used_by_the_application_only() {
+    let ws = fixture("violations");
+    let found = violations(&ws, "DCA-ADV-021");
+    let has = |text: &str| found.iter().any(|line| line.contains(text));
+    assert!(has("`rename` calls `service.calculate`"), "{found:?}");
+    assert!(has("`export` calls `calculator.calculate`"), "{found:?}");
+    assert!(has("`wire` calls `calculator.calculate`"), "{found:?}");
+    assert!(!has("`wire` constructs"), "{found:?}");
+    assert!(!has("Planner"), "{found:?}");
+}

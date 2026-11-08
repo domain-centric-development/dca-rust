@@ -137,6 +137,7 @@ pub struct Calculator {
 }
 impl DomainService for Calculator {}
 impl Calculator {
+    pub fn new() -> Self { Calculator { count: Cell::new(0) } }
     pub fn calculate(&self) {}
 }
 

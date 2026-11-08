@@ -230,6 +230,8 @@ MAPPING = {
                      "No method body calls a function of, or constructs, a type that implements DomainService. A parameter of that type alone is not reported."),
     "DCA-ADV-020": m(LT, [S], "pub methods of types that implement DomainService.",
                      "At least one parameter is, by value or by reference, a type that implements AggregateRoot or Entity."),
+    "DCA-ADV-021": m(LT, [S], "Every function body - free functions and the methods of impl blocks - in every crate except the application crates, the impls of a type that implements DomainService excluded. A domain service is a type that implements DomainService, as DCA-ADV-010 selects it: Rust marks no module, so a module of free functions is no domain service by this rule.",
+                     "No body names a type that implements DomainService as an expression (a struct literal, a unit value, an associated function), nor calls a method on a parameter, a local binding or a field of self whose type implements it, nor on one built in place. In an infrastructure or bootstrap crate - the composition root - a construction (a struct literal, a unit value, an associated function without a receiver that returns Self) passes; a call there is reported. A parameter or a field of that type alone is not reported; a call through a generic bound or a trait object is not seen."),
     # --- use case ----------------------------------------------------------------------------------------
     "DCA-USE-001": m(LT, [S], "Traits named InputPort anywhere in the workspace.", "None outside the building blocks."),
     "DCA-USE-002": m(LT, [S], "Structs and enums whose name ends with Command.", "Each sits in an application crate."),
