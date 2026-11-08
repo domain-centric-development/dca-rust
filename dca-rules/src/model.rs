@@ -101,6 +101,9 @@ pub struct Config {
     pub framework_crates: BTreeSet<String>,
     /// Type names that count as an event timestamp.
     pub timestamp_types: BTreeSet<String>,
+    /// Names of the associated function that rebuilds a stored domain value, matched ignoring
+    /// case; `reconstitute` and `restore` by default. DCA-TAC-025 lets it take a `bool`.
+    pub reconstituting_factories: BTreeSet<String>,
     /// Submodule of `incoming` that holds event consumers.
     pub event_consumer_module: String,
     /// Types whose presence in a handler's signature declares a claims-only authorization (an
@@ -160,6 +163,13 @@ impl Config {
                 "timestamp-types",
                 &["Timestamp", "SystemTime", "DateTime", "OffsetDateTime"],
             ),
+            reconstituting_factories: list(
+                "reconstituting-factories",
+                &["reconstitute", "restore"],
+            )
+            .into_iter()
+            .map(|n| n.to_lowercase())
+            .collect(),
             event_consumer_module: v
                 .get("event-consumer-module")
                 .and_then(|x| x.as_str())

@@ -47,6 +47,11 @@ impl Thing {
         Thing { id, keeper, parts: Vec::new(), archived: false, events: vec![ThingEvent::ThingCreated(ThingCreated { event, thing: id, occurred_on: at })] }
     }
 
+    /// Rebuilds a stored thing; its yes/no fact comes back as the `bool` it was.
+    pub fn reconstitute(id: ThingId, keeper: KeeperId, parts: Vec<Part>, archived: bool) -> Thing {
+        Thing { id, keeper, parts, archived, events: Vec::new() }
+    }
+
     pub fn add_part(&mut self, part: PartId, label: Label, event: EventId, at: Timestamp) -> Result<(), ThingError> {
         if self.parts.iter().any(|p| p.label() == &label) {
             return Err(ThingError::DuplicateLabel);

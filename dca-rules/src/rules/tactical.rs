@@ -517,6 +517,14 @@ fn is_bool(ty: &syn::Type) -> bool {
     matches!(ty, syn::Type::Path(p) if p.path.is_ident("bool"))
 }
 
+/// Whether a method's return type names the type itself, `Self` aside.
+fn returns_decl(m: &crate::model::MethodRef<'_>, name: &str) -> bool {
+    match &m.sig.output {
+        syn::ReturnType::Type(_, ty) => type_idents(ty).iter().any(|i| i == name),
+        syn::ReturnType::Default => false,
+    }
+}
+
 pub fn tac_025(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in ws.type_decls().filter(|d| {
@@ -558,7 +566,19 @@ pub fn tac_025(ws: &Workspace) -> Vec<Violation> {
             }
         }
         for m in ws.methods(d).into_iter().filter(|m| m.inherent) {
+            // The factory that rebuilds a stored value hands its yes/no fact back: its `bool` is no
+            // flag argument. An associated function without a receiver that returns the type,
+            // named as configured.
+            let rebuilds = !m.has_receiver()
+                && (m.returns_self() || returns_decl(&m, &ws.decls[d].name))
+                && ws
+                    .config
+                    .reconstituting_factories
+                    .contains(&m.name.to_lowercase());
             for p in m.params() {
+                if rebuilds && is_bool(p) {
+                    continue;
+                }
                 if let Some(b) = bare_in(p) {
                     out.push(at(
                         ws,

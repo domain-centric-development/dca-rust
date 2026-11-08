@@ -201,10 +201,21 @@ fn a_yes_no_fact_is_a_field_and_never_a_parameter() {
         .into_iter()
         .filter(|line| line.contains("Lamp"))
         .collect();
-    assert_eq!(lamp.len(), 2, "{lamp:?}");
+    assert_eq!(lamp.len(), 3, "{lamp:?}");
     assert!(
         lamp.iter()
             .any(|line| line.contains("`switch` takes a bare `bool`")),
+        "{lamp:?}"
+    );
+    assert!(
+        lamp.iter()
+            .any(|line| line.contains("`restore` takes a bare `u32`")),
+        "{lamp:?}"
+    );
+    assert!(
+        !lamp
+            .iter()
+            .any(|line| line.contains("`restore` takes a bare `bool`")),
         "{lamp:?}"
     );
     assert!(

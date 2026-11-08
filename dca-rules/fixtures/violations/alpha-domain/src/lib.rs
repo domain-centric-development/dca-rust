@@ -204,12 +204,14 @@ impl std::error::Error for ThingRefused {}
 impl DomainFailure for ThingRefused {}
 
 /// DCA-TAC-025: a yes/no fact kept in a private `bool` field passes; a `bool` parameter and a `pub`
-/// `bool` field are flag arguments.
+/// `bool` field are flag arguments. The reconstituting factory `restore` takes its `bool` - its bare
+/// count is reported.
 pub struct Lamp {
     lit: bool,
     pub dimmed: bool,
 }
 impl Lamp {
+    pub fn restore(lit: bool, dimmed: bool, hours: u32) -> Self { let _ = hours; Lamp { lit, dimmed } }
     pub fn switch(&mut self, lit: bool) { self.lit = lit; }
     pub fn is_lit(&self) -> bool { self.lit }
 }
