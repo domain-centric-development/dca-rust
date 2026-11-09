@@ -61,12 +61,16 @@ MAPPING = {
                      "A crate cannot add an item to another crate's module, so the building blocks' output-port module holds what the library declares and nothing a project adds. The rule holds by the language."),
     "DCA-LAY-007": m(LT, [S], "In a crate that carries a context but no layer (the two-crate form), every top-level module.",
                      "Informational - lists every top-level module that is none of domain, application, adapters, api, events and infrastructure, and never fails. In the crate-per-layer form every item sits in a layer by its crate and nothing is listed."),
+    "DCA-LAY-008": m(LT, [S], "Every application crate.",
+                     "No dependency on a configured persistence or transaction crate (sqlx, diesel, sea-orm, rusqlite, tokio-postgres, mongodb by default). Planned: the suite does not implement it yet."),
     # --- onion -------------------------------------------------------------------------------------------
     "DCA-ONI-001": m(C, [W, G], "Every crate with layer = domain.",
                      "Its Cargo dependencies name no crate with layer = application, its own context's included."),
     "DCA-ONI-002": m(LT, [W, G, D], "Every crate with layer = domain, the shared kernel's included.",
                      "Its normal dependencies are the building blocks, the shared kernel and the configured allowed crates only (by default none). Dev-dependencies are not counted. cargo-deny can refuse known framework crates workspace-wide; the graph test is the per-crate check."),
     "DCA-ONI-003": m(LT, [W, S], META_SEL, META_CHK, title="Domain models must not carry prohibited framework derives or attributes"),
+    "DCA-ONI-004": m(LT, [S], "Every domain crate.",
+                     "No async fn, no .await and no type from a configured async runtime (std::future::Future implementors returned, tokio, async-std, futures by default). Planned: the suite does not implement it yet."),
     # --- hexagonal ---------------------------------------------------------------------------------------
     "DCA-HEX-001": m(C, [W, G], "Every crate with layer = domain.",
                      "Its Cargo dependencies name no crate with layer = adapters, of any context."),

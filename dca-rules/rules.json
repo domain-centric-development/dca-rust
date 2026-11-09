@@ -158,6 +158,22 @@
       "implemented": false
     },
     {
+      "set": "layered",
+      "id": "DCA-LAY-008",
+      "title": "Application layer must not use persistence or transaction APIs",
+      "rationale": "A use case declares its transaction with the configured transactional annotation or draws its boundary through the transaction-boundary port or a decorator around the use case, never through a persistence context, a connection or a transaction scope of its own. A persistence or transaction API in the application layer binds the use cases to one persistence technology and hides where the boundary is; the boundary's implementation is the single place that knows how to open and commit a transaction",
+      "selects": "Every application crate.",
+      "checks": "No dependency on a configured persistence or transaction crate (sqlx, diesel, sea-orm, rusqlite, tokio-postgres, mongodb by default). Planned: the suite does not implement it yet.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": false
+    },
+    {
       "set": "onion",
       "id": "DCA-ONI-001",
       "title": "Domain must not access Application Services (Onion Architecture - Domain is innermost layer)",
@@ -208,6 +224,22 @@
         "source-test"
       ],
       "implemented": true
+    },
+    {
+      "set": "onion",
+      "id": "DCA-ONI-004",
+      "title": "Domain layer must stay synchronous",
+      "rationale": "Asynchrony is an I/O concern of ports and adapters; a synchronous domain model stays testable, deterministic and free of sync-over-async hazards",
+      "selects": "Every domain crate.",
+      "checks": "No async fn, no .await and no type from a configured async runtime (std::future::Future implementors returned, tokio, async-std, futures by default). Planned: the suite does not implement it yet.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": false
     },
     {
       "set": "hexagonal",
