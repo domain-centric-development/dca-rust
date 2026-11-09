@@ -522,6 +522,22 @@
       "implemented": true
     },
     {
+      "set": "hexagonal",
+      "id": "DCA-HEX-021",
+      "title": "Outgoing adapters must not call state-changing methods of aggregate roots",
+      "rationale": "An aggregate's state changes through its own methods, each with its guard and its event, and the application decides when one runs. An outgoing adapter that calls one changes the aggregate on a path no use case owns, outside the transaction the use case draws and without the events it publishes. The adapter stores and loads what the aggregate holds",
+      "selects": "Function bodies in the outgoing module of every adapters crate. Nothing is selected when no type implements AggregateRoot.",
+      "checks": "No body calls, on a parameter, a local binding or a field of self whose type implements AggregateRoot, a method that takes &mut self - in Rust the receiver says which methods change the aggregate. A method of a building-block trait (clearing the recorded events after publishing) passes. A change written to storage directly, past the aggregate, is not seen. Planned: the suite does not implement it yet.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": false
+    },
+    {
       "set": "tactical",
       "id": "DCA-TAC-001",
       "title": "Aggregate Roots must implement AggregateRoot<T, ID>",
@@ -891,7 +907,7 @@
       "title": "Domain types must not hold bare primitives, strings or time types; a boolean only as a field or a predicate",
       "rationale": "A value with rules of its own - a postal code, a quantity, a moment, an identifier - is a value object; held as a bare String, int, Instant or UUID its validation is repeated at every use or missing. A value object with several components holds value objects too; only a wrapper - a value of exactly one component - holds the primitive it wraps. A single yes/no fact may stay a boolean field: the type is told (complete()) and answers (isCompleted()). A boolean parameter is a flag argument - setCompleted(true) lets the caller set the state instead of triggering the behaviour - except in the factory that rebuilds a stored object, which hands the stored fact back to the type that holds it. Three or more states, or transitions with rules, are an enum or a value",
       "selects": "Types, fields and pub signatures in every domain crate, the shared kernel's included. Not selected: a single-field newtype that implements Value or Id, failures, and trait methods of a building block.",
-      "checks": "No field, parameter or return type, through generic arguments, is String, &str, a primitive, a time type (std::time::SystemTime, chrono, time) or a bare Uuid. A private field of type bool - a single yes/no fact - and a bool return - a predicate - pass; a bool parameter and a pub bool struct field, flag arguments, do not. A bool parameter of the factory that rebuilds a stored value - an associated function without a receiver that returns Self or the type, named as [workspace.metadata.dca] reconstituting-factories lists, reconstitute and restore by default, case ignored - passes; its other parameters are checked.",
+      "checks": "No field, parameter or return type, through generic arguments, is String, &str, a primitive, a time type (std::time::SystemTime, chrono, time) or a bare Uuid. A private field of type bool - a single yes/no fact - and a bool return - a predicate - pass; a bool parameter and a pub bool struct field, flag arguments, do not. A bool parameter of the factory that rebuilds a stored value - an associated function without a receiver that returns Self or the type, named as [workspace.metadata.dca] reconstituting-factories lists, reconstitute and restore by default, case ignored - passes; its other parameters are checked. The two-variant enum that names one fact and its negation, which the other languages report as a boolean in disguise, is not checked by the Rust suite yet.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -1949,6 +1965,38 @@
         "clippy"
       ],
       "implemented": true
+    },
+    {
+      "set": "usecase",
+      "id": "DCA-USE-021",
+      "title": "Use cases should be stateless (only final fields for dependencies)",
+      "rationale": "One instance of a use case serves every caller. A field it writes while it runs is shared by the next call and by concurrent ones, and one call's outcome depends on the call before. What a use case holds is set once, by its constructor: the ports and services it is wired with",
+      "selects": "Types that implement an input port (a trait extending UseCase).",
+      "checks": "No method of their impls takes &mut self, and no field holds interior mutability (Cell, RefCell, Mutex, RwLock, an atomic). Planned: the suite does not implement it yet.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": false
+    },
+    {
+      "set": "usecase",
+      "id": "DCA-USE-022",
+      "title": "Use case results must not be bare primitives or strings",
+      "rationale": "A use case answers in the application's language: a result type of its own, a value, or a case of a closed result. A bare number, text or flag carries no meaning of its own - an exit code, a status word or a count whose meaning lives in the caller - and it cannot gain a case without changing every caller",
+      "selects": "impl UseCase<I, O> blocks and the traits that extend UseCase<I, O>.",
+      "checks": "O, or the success type of a Result it names, is none of String, &str, bool, char or a numeric primitive. () passes - a command with nothing to answer -, and so does a container such as Vec<String>. Planned: the suite does not implement it yet.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": false
     },
     {
       "set": "naming",
