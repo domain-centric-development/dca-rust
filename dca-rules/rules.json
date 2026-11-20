@@ -114,8 +114,8 @@
       "id": "DCA-LAY-004",
       "title": "Transaction boundaries belong to the application layer",
       "rationale": "Transactions are an application-layer concern - domain and incoming adapters must not manage them",
-      "selects": "Types and functions in every crate that name the building-block trait TransactionBoundary or one of the configured transaction types (for example a database transaction type).",
-      "checks": "Each sits in an application crate or in the outgoing module of an adapters crate; wiring is also allowed in a bootstrap or infrastructure crate. A domain crate or an incoming adapter that names one is reported. Rust has no declarative transaction attribute, so there is no annotation selection.",
+      "selects": "Paths in every module of every crate with a layer that name the building-block trait TransactionBoundary (wiring) or one of the types [workspace.metadata.dca] transaction-types lists (transaction use), written crate::Type - the crate and the type's name are compared, the modules between are not. The default preset: sqlx::Transaction, diesel::connection::AnsiTransactionManager, sea_orm::DatabaseTransaction, rusqlite::Transaction, tokio_postgres::Transaction, mongodb::ClientSession.",
+      "checks": "Transaction use sits in an application crate or in the outgoing module of an adapters crate; wiring sits there or in an infrastructure or bootstrap crate. A domain, shared-kernel or api crate, an incoming adapter or another module of an adapters crate that names one is reported, once per path. Rust has no declarative transaction attribute, so there is no annotation selection; a call that runs a transaction without naming the type (a method on a pool) is not seen.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -123,7 +123,7 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "layered",
@@ -155,23 +155,23 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "layered",
       "id": "DCA-LAY-008",
       "title": "Application layer must not use persistence or transaction APIs",
       "rationale": "A use case declares its transaction with the configured transactional annotation or draws its boundary through the transaction-boundary port or a decorator around the use case, never through a persistence context, a connection or a transaction scope of its own. A persistence or transaction API in the application layer binds the use cases to one persistence technology and hides where the boundary is; the boundary's implementation is the single place that knows how to open and commit a transaction",
-      "selects": "Every application crate.",
-      "checks": "No dependency on a configured persistence or transaction crate (sqlx, diesel, sea-orm, rusqlite, tokio-postgres, mongodb by default). Planned: the suite does not implement it yet.",
+      "selects": "Every application crate and its normal Cargo dependencies.",
+      "checks": "None is a crate [workspace.metadata.dca] persistence-crates lists (package names; sqlx, diesel, sea-orm, rusqlite, tokio-postgres and mongodb by default). Without the dependency the compiler refuses every use of the crate.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
       "category": "lint-test",
       "enforcement": [
-        "source-test"
+        "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "onion",
@@ -230,16 +230,17 @@
       "id": "DCA-ONI-004",
       "title": "Domain layer must stay synchronous",
       "rationale": "Asynchrony is an I/O concern of ports and adapters; a synchronous domain model stays testable, deterministic and free of sync-over-async hazards",
-      "selects": "Every domain crate.",
-      "checks": "No async fn, no .await and no type from a configured async runtime (std::future::Future implementors returned, tokio, async-std, futures by default). Planned: the suite does not implement it yet.",
+      "selects": "Every module of every domain crate.",
+      "checks": "No function is async or returns a type named Future, no expression awaits or builds an async block, and no path names a crate [workspace.metadata.dca] async-runtime-crates lists (tokio, async-std, futures and smol by default). DCA-RS-004 holds the signatures alone.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
       "category": "lint-test",
       "enforcement": [
+        "workspace",
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "hexagonal",
@@ -461,8 +462,8 @@
       "id": "DCA-HEX-014",
       "title": "GET handlers must not drive an input port that takes a command",
       "rationale": "A state-changing use case is reached only by an unsafe HTTP method, never by GET. Links, prefetching, crawlers and cross-site navigation issue GET requests on their own; a GET that runs a command changes state nobody asked to change. A handler that names no HTTP method answers GET as well",
-      "selects": "Handler functions in the incoming module that the configured router preset registers for GET (for example axum's get(...) or an actix #[get] attribute).",
-      "checks": "No such function calls an input port whose input type is a command (by default a name ending with Command). Without a router preset nothing is selected.",
+      "selects": "Handler functions in the incoming module of every adapters crate that a router preset named in [workspace.metadata.dca] routers registers for GET: axum - a free function passed to a routing function of axum (get(show)) or to get chained on one (post(create).get(show)); actix-web - one passed to .to(..) on web::get(), or one carrying #[get(..)] or #[route(..)] with GET; rocket - one carrying #[get(..)] or #[route(..)] with GET. Without a preset nothing is selected.",
+      "checks": "No such function names, in its signature or body, a type of an application crate whose name ends with Command - the input of a command port. Which port the handler calls is not resolved; a handler registered through a router another crate builds is found when that crate is in the workspace.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -470,15 +471,15 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "hexagonal",
       "id": "DCA-HEX-016",
       "title": "Diagnostic: adapters that publish an enum by its member name",
       "rationale": "A value an adapter publishes from an enum is spelled explicitly - a code per value on the enum or a mapping in the adapter - never derived from the member's name. Renaming a member is a refactoring inside the code and must not change what a client reads",
-      "selects": "Format calls in every adapters crate.",
-      "checks": "Informational - lists every {:?} or to_string() applied to an enum declared in a domain or application crate, and never fails. A serializer that writes the variant name is not seen.",
+      "selects": "Function bodies in every adapters crate, and in them the enums declared in a domain or application crate: a parameter, a written-out local or a field of self of such a type, and a path to one of its variants.",
+      "checks": "Informational - lists every .to_string() on such an enum and every argument formatted with ? ({:?}, {:#?}, {0:?}, {name:?}, captured or named) by format!, write!, writeln!, print!, println!, eprint!, eprintln!, panic! or format_args!, and never fails. A serializer that writes the variant name, and an enum reached through an unannotated local, are not seen.",
       "implementation": "rust",
       "status": "informational",
       "maturity": "experimental",
@@ -486,15 +487,15 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "hexagonal",
       "id": "DCA-HEX-017",
       "title": "Event listeners that drive an input port must run after the commit in their own transaction",
       "rationale": "A reaction to an event changes state or performs an external effect through a use case. Run inside the transaction that raised the event, it changes a second aggregate in the first one's transaction, a failure in the reaction rolls back the fact that caused it, and a retry of the request runs the reaction again. A listener that only translates or measures calls output ports and may run in that transaction",
-      "selects": "Functions in every crate registered as event listener by the configured listener preset.",
-      "checks": "A listener that calls an input port runs after the commit in its own transaction, as the preset expresses it. Rust has no common listener attribute; without a preset nothing is selected.",
+      "selects": "Functions registered as event listener by a configured listener preset.",
+      "checks": "A listener that calls an input port runs after the commit in its own transaction, as the preset expresses it. Not implemented: no Rust event library declares a listener's transaction phase, so there is no preset to select by; DCA-USE-012 holds that a use case writes inside its TransactionBoundary.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -509,8 +510,8 @@
       "id": "DCA-HEX-018",
       "title": "Controllers must reside in an incoming adapter package",
       "rationale": "A controller turns a request into a command or a query and is an incoming adapter. Outside the incoming adapter packages it is outside the selection of every rule written for incoming adapters - the GET-handler rule, the controller naming rules, the boundary rules - and passes them all",
-      "selects": "Handler functions the configured router preset recognises, anywhere in the workspace.",
-      "checks": "Each sits in the incoming module of an adapters crate. Rust handlers are functions, not classes.",
+      "selects": "Handler functions the router presets named in [workspace.metadata.dca] routers register, anywhere in the workspace, read as DCA-HEX-014 reads them, for every verb. Without a preset nothing is selected.",
+      "checks": "Each is declared in the incoming module of an adapters crate. Rust handlers are functions, not classes; a method registered as a handler is not seen.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -518,7 +519,7 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "hexagonal",
@@ -559,7 +560,7 @@
       "title": "Outgoing adapters must not call state-changing methods of aggregate roots",
       "rationale": "An aggregate's state changes through its own methods, each with its guard and its event, and the application decides when one runs. An outgoing adapter that calls one changes the aggregate on a path no use case owns, outside the transaction the use case draws and without the events it publishes. The adapter stores and loads what the aggregate holds",
       "selects": "Function bodies in the outgoing module of every adapters crate. Nothing is selected when no type implements AggregateRoot.",
-      "checks": "No body calls, on a parameter, a local binding or a field of self whose type implements AggregateRoot, a method that takes &mut self - in Rust the receiver says which methods change the aggregate. A method of a building-block trait (clearing the recorded events after publishing) passes. A change written to storage directly, past the aggregate, is not seen. Planned: the suite does not implement it yet.",
+      "checks": "No body calls, on a parameter, a local binding whose type is written out or a field of self whose type names a type that implements AggregateRoot, a method of that type that takes &mut self - in Rust the receiver says which methods change the aggregate. A method of a building-block trait (clearing the recorded events after publishing) passes. A change written to storage directly, past the aggregate, and a call on an unannotated local are not seen.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -567,7 +568,7 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "tactical",
@@ -972,7 +973,7 @@
       "title": "Diagnostic: Display discovered bounded contexts",
       "rationale": "Making the discovered contexts visible shows which packages the strategic rules govern",
       "selects": "Every crate whose [package.metadata.dca] carries a context.",
-      "checks": "Informational - lists each context with its crates and the shared kernel, and never fails.",
+      "checks": "Informational - lists each context with its crates and their layers, and the shared-kernel crates, and never fails.",
       "implementation": "rust",
       "status": "informational",
       "maturity": "released",
@@ -980,7 +981,7 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "strategic",
@@ -1165,8 +1166,8 @@
       "id": "DCA-MAP-001",
       "title": "Upstream, ExternalUpstream, and Partnership may only be declared on bounded context packages",
       "rationale": "Context map declarations are reserved for bounded contexts — only a context can be downstream of, or partner with, another",
-      "selects": "Every crate's [package.metadata.dca].",
-      "checks": "upstreams, external-upstreams and partnerships appear only in the metadata of the crate that declares the context (by default its domain crate).",
+      "selects": "Every crate's [package.metadata.dca], read for its upstreams, external-upstreams and partnerships arrays of tables. The declarations: [[package.metadata.dca.upstreams]] with context, via (a list of api and events), translation (acl or conformist) and status (implemented, the default, or planned); [[package.metadata.dca.external-upstreams]] with name, interaction (outbound or inbound), translation, contract-crates (a list of package names) and status; [[package.metadata.dca.partnerships]] with context.",
+      "checks": "Only the crate that declares a context carries them: the context's domain crate, or, for a context without a domain crate, its crate that names no layer. A declaration on an application, adapters, api or infrastructure crate, or on a crate without a context, is reported; whether a declaration is well-formed is left to the other rules.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1174,15 +1175,15 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-002",
       "title": "ExternalUpstream declarations must be well-formed and unique per name and interaction",
       "rationale": "The identity of an @ExternalUpstream declaration is (name, interaction); internal contexts are declared with @Upstream instead",
-      "selects": "Every external-upstreams entry.",
-      "checks": "name is not blank and not the name of a context, and (name, interaction) occurs at most once per context.",
+      "selects": "Every external-upstreams entry of every declaring crate, reading name, interaction, translation and status.",
+      "checks": "name is not blank and not the name of a context of the workspace; interaction is outbound or inbound, translation acl or conformist, status implemented or planned; and the pair (name, interaction) occurs at most once per context. The same external system declared by two contexts is not reported; contract-crates is not checked here.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1190,15 +1191,15 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-004",
       "title": "Upstream declarations must reference an existing bounded context and never the declaring context itself",
       "rationale": "A dangling or self-referencing upstream edge describes a relationship that cannot exist",
-      "selects": "Every upstreams entry.",
-      "checks": "context names an existing context and not the declaring one.",
+      "selects": "Every upstreams entry of every declaring crate, reading context, translation and status. Planned entries are included.",
+      "checks": "context names a context some crate declares and not the declaring one; translation is acl or conformist and status implemented or planned. Whether any code depends on the target is not established here.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1206,15 +1207,15 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-005",
       "title": "Upstream declarations must be unique per context and channel, and via must not be empty",
       "rationale": "The identity of an @Upstream declaration is (context, via); different translations per channel require separate annotations",
-      "selects": "Every upstreams entry.",
-      "checks": "via holds at least one channel (api, events), and (context, channel) occurs at most once per context.",
+      "selects": "Every upstreams entry of every declaring crate, reading context and via. Planned entries are included.",
+      "checks": "via holds at least one channel, each one api or events, and the pair (context, channel) occurs at most once among the entries of one context; two entries towards one context on different channels pass.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1222,15 +1223,15 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-006",
       "title": "Upstream declarations and the module declaration's allowed dependencies must agree",
       "rationale": "Neither the context map nor the module boundary may know more than the other — an edge that exists only on one side is stale",
-      "selects": "Every context with upstreams entries.",
-      "checks": "The declared edges equal the Cargo dependencies of the context's crates on another context's api crate. Cargo.toml is the module declaration in Rust; there is no second one to compare.",
+      "selects": "Every declaring crate with its upstreams entries towards existing other contexts, planned ones included, and every normal Cargo dependency of the context's crates on another context's api crate.",
+      "checks": "The declared upstream contexts equal the contexts whose api crate a crate of the context depends on: a declared upstream no crate depends on is reported on the declaring crate, a dependency on an undeclared one on the depending crate. Cargo.toml is the module declaration in Rust; there is no second one to compare, and a dependency names a crate, not a channel - the channels are DCA-MAP-007's and DCA-MAP-011's.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1238,15 +1239,15 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-007",
       "title": "Implemented Upstream declarations must be backed by an actual code dependency",
       "rationale": "A declared IMPLEMENTED edge without any real dependency is stale (or premature — then it is PLANNED) and would otherwise pass forever alongside an equally stale module boundary entry",
-      "selects": "Every implemented upstreams entry.",
-      "checks": "For each channel, some source file of the declaring context names a path into the target's api crate (api or events module).",
+      "selects": "Every upstreams entry with status implemented towards an existing other context, reading via. Planned entries and entries towards an unknown context are skipped.",
+      "checks": "For each channel in via, some module of some crate of the declaring context names a path into that channel of the target's api crate - the events module and below for events, the rest of the api crate for api. Which crate holds the use is not checked here.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1255,15 +1256,15 @@
         "graph-test",
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-008",
       "title": "Anti-Corruption Layer: upstream contract types must stay inside the matching adapter",
       "rationale": "The ACL sits where the dependency crosses the boundary — outgoing adapters for synchronous API calls, incoming adapters for consumed events — and translates the upstream contract into the context's own model there",
-      "selects": "Every upstreams entry with translation = acl.",
-      "checks": "Only the context's adapters crate depends on the target's api crate; within it, the api channel is named only in the outgoing module and the events channel only in the incoming module.",
+      "selects": "Every upstreams entry with translation = acl towards an existing other context, reading via; the status is not consulted.",
+      "checks": "No crate of the declaring context other than its adapters crate has a normal dependency on the target's api crate; within the adapters crate, a path into the api channel sits only in the outgoing module and a path into the events channel only in the incoming module, for the channels the entry names. Whether the adapter translates is not established.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1273,15 +1274,15 @@
         "graph-test",
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-009",
       "title": "Conformist: upstream contract types must never reach the domain layer",
       "rationale": "Conformism does not suspend domain purity — the domain layer stays free of foreign contract types",
-      "selects": "Every upstreams entry with translation = conformist.",
-      "checks": "The context's domain crate does not depend on the target's api crate.",
+      "selects": "Every upstreams entry with translation = conformist towards an existing other context; the status is not consulted.",
+      "checks": "The declaring context's domain crate has no normal dependency on the target's api crate; the graph test refuses the Cargo.toml line, and without it the compiler refuses every path into the crate. DCA-STR-004 refuses the same dependency for every context, declared or not.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1290,15 +1291,15 @@
         "workspace",
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-010",
       "title": "External system contract types must respect the declared translation and interaction",
       "rationale": "An external system's contract types are confined to the adapter where the exchange crosses the boundary (ACL) or at least kept out of the domain (Conformist)",
-      "selects": "Every external-upstreams entry that names contract crates.",
-      "checks": "With acl, only the adapters crate depends on a contract crate and only the matching module (outgoing for outbound, incoming for inbound) names it; with conformist, the domain crate does not depend on one.",
+      "selects": "Every external-upstreams entry that names contract-crates (package names; a crate outside the workspace counts by its name), reading translation and interaction; the status is not consulted. An entry without contract crates only documents the relationship.",
+      "checks": "With acl, no crate of the context but the adapters crate has a normal dependency on a contract crate, and within it only the matching module - outgoing for outbound, incoming for inbound - names a path into one. With conformist, the domain crate has no normal dependency on one. That the adapter translates is not established.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1308,31 +1309,32 @@
         "graph-test",
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-011",
       "title": "Cross-context dependencies on published interfaces require an Upstream declaration",
       "rationale": "Every real dependency on a foreign api/ or events/ package is a context-map edge and must be declared as such",
-      "selects": "Every Cargo dependency of a context's crate on another context's api crate.",
-      "checks": "The source context declares an upstreams entry for that context and channel.",
+      "selects": "Every normal Cargo dependency of a context's crate on another context's api crate, and every path its modules name into such a crate, with the channel the path lies in (events module and below: events; the rest: api).",
+      "checks": "The declaring crate of the source context carries an upstreams entry for the target context - for a path, one whose via names that channel. Planned entries count as declared. Dependencies on a foreign context's other crates are not reported by this rule.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
       "category": "reformulated",
       "enforcement": [
-        "graph-test"
+        "graph-test",
+        "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-012",
       "title": "Partnership declarations must reference an existing bounded context, never themselves, and must be symmetric",
       "rationale": "A partnership is a mutual commitment — it exists only when both contexts declare it",
-      "selects": "Every partnerships entry.",
-      "checks": "It names an existing context, not itself, and the target declares the partnership back.",
+      "selects": "Every partnerships entry of every declaring crate, reading context.",
+      "checks": "It names a context some crate declares, not the declaring one, and the target's declaring crate carries a partnerships entry naming the declaring context in turn. A partnership grants no dependency.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
@@ -1340,15 +1342,15 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-013",
       "title": "Diagnostic: Display declared context map",
       "rationale": "Printing the declared edges makes the executable context map reviewable at a glance",
-      "selects": "Every upstreams, external-upstreams and partnerships entry.",
-      "checks": "Informational - lists every declared edge and never fails.",
+      "selects": "Every upstreams, external-upstreams and partnerships entry of every declaring crate.",
+      "checks": "Informational - lists every declared edge with its channels or interaction and its translation, and never fails. The status is not printed.",
       "implementation": "rust",
       "status": "informational",
       "maturity": "released",
@@ -1356,24 +1358,25 @@
       "enforcement": [
         "graph-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "contextmap",
       "id": "DCA-MAP-014",
       "title": "Every allowed dependency of a module declaration must be backed by an actual code dependency",
       "rationale": "A context declares only the dependencies it uses. An allowed dependency no class uses is a door left open: the next dependency through it passes the module boundary without anyone deciding it",
-      "selects": "Every Cargo dependency of a context's crate on another context's crate.",
-      "checks": "Some source file of the crate names the dependency. The rustc lint unused_crate_dependencies holds the same per crate.",
+      "selects": "Every normal Cargo dependency of a context's crate on a crate of another context. A dependency on the api crate of a context the declaring crate names in a planned upstreams entry is skipped.",
+      "checks": "Some module of the crate names a path into the dependency. Paths inside macro invocations are not seen. The rustc lint unused_crate_dependencies holds the same per crate for every dependency.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
       "category": "lint-test",
       "enforcement": [
         "clippy",
-        "graph-test"
+        "graph-test",
+        "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "advanced",
@@ -1955,8 +1958,8 @@
       "id": "DCA-USE-018",
       "title": "In a module grouped by feature, incoming adapters must drive the commands of one feature only",
       "rationale": "Once the application is grouped, the incoming adapter is cut the same way: one controller changes state through the use cases of one feature. A class that drives the commands of two features grows with every use case of both and hides the cut the application already made. Reading a neighbouring feature's query is no reason to cut",
-      "selects": "Items in the incoming module of an adapters crate whose application groups use cases by feature.",
-      "checks": "The input ports taking a command that an item names belong to at most one feature.",
+      "selects": "Items in the incoming module of every adapters crate, and the input-port traits they name that take a command (the input of a UseCase<..> bound or a method parameter is a type whose name ends with Command) and are declared in a feature: two module levels deep in an application crate, application::<feature>::<use_case>, the shared module excluded.",
+      "checks": "The ports one item names belong to at most one feature. An application crate without feature modules selects nothing.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -1964,7 +1967,7 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "usecase",
@@ -2003,8 +2006,8 @@
       "id": "DCA-USE-021",
       "title": "Use cases should be stateless (only final fields for dependencies)",
       "rationale": "One instance of a use case serves every caller. A field it writes while it runs is shared by the next call and by concurrent ones, and one call's outcome depends on the call before. What a use case holds is set once, by its constructor: the ports and services it is wired with",
-      "selects": "Types that implement an input port (a trait extending UseCase).",
-      "checks": "No method of their impls takes &mut self, and no field holds interior mutability (Cell, RefCell, Mutex, RwLock, an atomic). Planned: the suite does not implement it yet.",
+      "selects": "Types that implement an input port (a trait extending InputPort or UseCase).",
+      "checks": "No method of their impls takes &mut self, and no field holds interior mutability (Cell, RefCell, Mutex, RwLock, an atomic).",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -2012,15 +2015,15 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "usecase",
       "id": "DCA-USE-022",
       "title": "Use case results must not be bare primitives or strings",
       "rationale": "A use case answers in the application's language: a result type of its own, a value, or a case of a closed result. A bare number, text or flag carries no meaning of its own - an exit code, a status word or a count whose meaning lives in the caller - and it cannot gain a case without changing every caller",
-      "selects": "impl UseCase<I, O> blocks and the traits that extend UseCase<I, O>.",
-      "checks": "O, or the success type of a Result it names, is none of String, &str, bool, char or a numeric primitive. () passes - a command with nothing to answer -, and so does a container such as Vec<String>. Planned: the suite does not implement it yet.",
+      "selects": "impl UseCase<I> blocks, read for their Output type, and the traits that extend UseCase<I, Output = O>.",
+      "checks": "O, or the success type of a Result it names, is none of String, &str, bool, char or a numeric primitive. () passes - a command with nothing to answer -, and so does a container such as Vec<String>.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "experimental",
@@ -2028,7 +2031,7 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "naming",
@@ -2213,64 +2216,68 @@
       "id": "DCA-CYC-001",
       "title": "Domain Packages must not have cyclic dependencies (package-based slice discovery)",
       "rationale": "Domain model packages should have clear boundaries and no cycles (Acyclic Dependencies Principle)",
-      "selects": "The domain crates of all contexts.",
-      "checks": "Cargo refuses a dependency cycle between crates, and DCA-STR-004 refuses any edge between two contexts' domains.",
+      "selects": "One slice per top-level module of every domain crate; the items of the crate root belong to no slice.",
+      "checks": "The slices form no dependency cycle through the paths their modules name. Between the domain crates of two contexts Cargo refuses a cycle and DCA-STR-004 refuses any edge; inside one crate modules may name each other both ways, so the crate is sliced. Submodules of one top-level module form one slice.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
-      "category": "compiler",
+      "category": "reformulated",
       "enforcement": [
-        "workspace"
+        "workspace",
+        "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "cycles",
       "id": "DCA-CYC-002",
       "title": "Application Layer must not have cyclic dependencies (package-based slice discovery)",
       "rationale": "Application services should have clear boundaries and no cycles",
-      "selects": "The application crates of all contexts.",
-      "checks": "Cargo refuses a dependency cycle between crates.",
+      "selects": "One slice per top-level module of every application crate, the shared module included; the items of the crate root belong to no slice.",
+      "checks": "The slices form no dependency cycle through the paths their modules name. Cargo refuses a cycle between crates; inside one crate the compiler allows it. A cycle between use cases or features alone is also DCA-CYC-005's; one through the shared module is this rule's only.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
-      "category": "compiler",
+      "category": "reformulated",
       "enforcement": [
-        "workspace"
+        "workspace",
+        "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "cycles",
       "id": "DCA-CYC-003",
       "title": "Outgoing Adapter Packages must not have cyclic dependencies",
       "rationale": "Outgoing adapters should have clear boundaries and no cycles",
-      "selects": "The adapters crates of all contexts.",
-      "checks": "Cargo refuses a dependency cycle between crates.",
+      "selects": "One slice per module directly below the outgoing module of every adapters crate; items of the outgoing module itself belong to no slice.",
+      "checks": "The slices form no dependency cycle through the paths their modules name. Cargo refuses a cycle between crates; inside one crate the compiler allows it.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
-      "category": "compiler",
+      "category": "reformulated",
       "enforcement": [
-        "workspace"
+        "workspace",
+        "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "cycles",
       "id": "DCA-CYC-004",
       "title": "Incoming Adapter Packages must not have cyclic dependencies",
       "rationale": "Incoming adapters should have clear boundaries and no cycles",
-      "selects": "The adapters crates of all contexts.",
-      "checks": "Cargo refuses a dependency cycle between crates. Incoming and outgoing adapters of one context share a crate; a cycle between them is DCA-HEX-006's.",
+      "selects": "One slice per module directly below the incoming module of every adapters crate; items of the incoming module itself belong to no slice.",
+      "checks": "The slices form no dependency cycle through the paths their modules name. Cargo refuses a cycle between crates; inside one crate the compiler allows it. A path from the incoming into the outgoing module is DCA-HEX-006's.",
       "implementation": "rust",
       "status": "enforced",
       "maturity": "released",
-      "category": "compiler",
+      "category": "reformulated",
       "enforcement": [
-        "workspace"
+        "workspace",
+        "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "cycles",
@@ -2391,7 +2398,7 @@
       "title": "Diagnostic: failures that carry display data or objects instead of ids and figures",
       "rationale": "A failure carries ids and figures, never what a page shows. Its fields are the typed identities and the values the rule compared; a name or a description of the thing an id refers to is resolved by the translation site through the queries it already has. A failure that carries the name decides for every surface what it shows, and one that carries an aggregate or an entity hands the model out through the error path",
       "selects": "Types that implement DomainFailure or a port failure, their fields and variant fields.",
-      "checks": "Informational - lists every field of type String, an aggregate or an entity, and never fails.",
+      "checks": "Informational - lists every field whose type names String or a type that implements AggregateRoot or Entity, through generic arguments, and never fails.",
       "implementation": "rust",
       "status": "informational",
       "maturity": "experimental",
@@ -2399,7 +2406,7 @@
       "enforcement": [
         "source-test"
       ],
-      "implemented": false
+      "implemented": true
     },
     {
       "set": "errors",
@@ -2428,6 +2435,22 @@
       "status": "enforced",
       "maturity": "experimental",
       "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
+    },
+    {
+      "set": "errors",
+      "id": "DCA-ERR-010",
+      "title": "A port call is never wrapped in a catch of every failure",
+      "rationale": "A failure has a type, and the code that answers it names that type. A catch of the platform's catch-all or of the port failures' common base around a port call answers every failure alike: a broken rule, an output port's refusal and a defect end in the same branch, and a failure nobody expected is swallowed instead of reaching the one handler that reports it",
+      "selects": "Every function body - free functions, methods of impl blocks, default methods of traits, closures included - in every application crate and in the incoming module of every adapters crate, and in it every call of a method on a port: a parameter, a local binding whose type is written out, or a field of self, whose type names a trait that carries the input-port or output-port role or a type that implements one, and a field of a parameter whose type is a struct of the workspace holding such a field (ports.add, State(ports): State<Ports> included - a one-field tuple-struct pattern binds its parameter). A field's type is read with the bounds of its struct and of the impl block. Rust has no try block; a Result is answered where it is consumed.",
+      "checks": "No port call has its failure answered without naming it: not an Err(_) arm, nor a _ or a bare binding arm the failure reaches, of a match over the call; not if let Ok(..) (which drops the failure) or if let Err(_) over it, nor let Ok(..) = .. else; not let _ = on it; not .ok(), .unwrap_or(..), .unwrap_or_default(), .or(..), .map_or(..), .is_ok() or .is_err() on it, nor .unwrap_or_else, .map_err, .or_else or .map_or_else with a closure that discards its (first) argument (|_| ..); and no port call inside std::panic::catch_unwind, the catch of every panic. The call is seen through parentheses and .await. Propagation with ?, an arm that matches a named failure or takes it in hand (Err(e)), and a map_err whose closure uses the failure pass. Not seen: a Result that is first bound to a name and answered later, a call through a helper of the type's own, and a call on a receiver whose type the suite cannot resolve (an unannotated local, a return value).",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "reformulated",
       "enforcement": [
         "source-test"
       ],

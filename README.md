@@ -20,6 +20,27 @@ context = "orders"
 layer = "domain"        # domain | application | adapters | api | infrastructure | shared-kernel | bootstrap
 ```
 
+The crate that declares a context — its domain crate, or its crate without a layer when it has no
+domain crate — also carries the context map, the relationships the context-map rules (DCA-MAP-…) check
+against the Cargo dependencies and the source:
+
+```toml
+[[package.metadata.dca.upstreams]]       # a context of the workspace this one consumes
+context = "billing"
+via = ["api", "events"]                  # the channels: the api crate's events module, and the rest of it
+translation = "acl"                      # acl | conformist
+status = "implemented"                   # implemented (default) | planned
+
+[[package.metadata.dca.external-upstreams]]   # a system outside the workspace
+name = "Payment Provider"
+interaction = "outbound"                 # outbound: this context calls it | inbound: it calls this context
+translation = "acl"
+contract-crates = ["provider-sdk"]       # the crates that carry its contract types, if any
+
+[[package.metadata.dca.partnerships]]    # declared on both sides
+context = "shipping"
+```
+
 ```rust
 // tests/architecture.rs of a test crate with dca-rules as a dev-dependency
 dca_rules::dca_tests!();   // one #[test] per rule id: dca_tac_003, dca_use_012, …
@@ -32,6 +53,10 @@ A violation fails its test with one line per finding, the rule id first:
 ```
 
 Experimental rules run only where `[workspace.metadata.dca] experimental` names them (`"all"` for every one).
+The same table configures what a rule selects by, framework crates only as presets: `routers` (`axum`,
+`actix-web`, `rocket`; none by default — the handler rules then select nothing), `transaction-types`,
+`persistence-crates`, `async-runtime-crates`, `authorization-extractors`, `authorization-layers`; each rule's
+`selects` in `rules.json` names the key it reads and its default.
 Not yet on crates.io; built and proven on a todo app.
 
 ## Author

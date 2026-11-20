@@ -6,7 +6,7 @@
 use crate::Violation;
 use crate::model::{Crate, Layer, Workspace};
 
-fn crate_location(ws: &Workspace, c: &Crate) -> String {
+pub(crate) fn crate_location(ws: &Workspace, c: &Crate) -> String {
     let manifest = c.manifest_dir.join("Cargo.toml");
     let rel = manifest.strip_prefix(&ws.root).unwrap_or(&manifest);
     format!("{} ({})", c.package, rel.display())
@@ -245,4 +245,43 @@ pub fn str_012(ws: &Workspace) -> Vec<Violation> {
             message: "no crate declares a layer; set layer in [package.metadata.dca]".into(),
         }]
     }
+}
+
+/// DCA-STR-001 (informational): each bounded context with its crates, and the shared kernel.
+pub fn str_001(ws: &Workspace) -> Vec<Violation> {
+    let named = |c: &Crate| match c.layer {
+        Some(l) => format!("{} ({})", c.package, l.name()),
+        None => c.package.clone(),
+    };
+    let mut out: Vec<Violation> = ws
+        .contexts()
+        .into_iter()
+        .map(|ctx| {
+            let crates: Vec<String> = ws
+                .crates
+                .iter()
+                .filter(|c| c.context.as_deref() == Some(ctx.as_str()))
+                .map(named)
+                .collect();
+            Violation {
+                rule: "DCA-STR-001",
+                location: "workspace".into(),
+                message: format!("context `{ctx}`: {}", crates.join(", ")),
+            }
+        })
+        .collect();
+    let kernel: Vec<String> = ws
+        .crates
+        .iter()
+        .filter(|c| layer_is(c, Layer::SharedKernel))
+        .map(|c| c.package.clone())
+        .collect();
+    if !kernel.is_empty() {
+        out.push(Violation {
+            rule: "DCA-STR-001",
+            location: "workspace".into(),
+            message: format!("shared kernel: {}", kernel.join(", ")),
+        });
+    }
+    out
 }

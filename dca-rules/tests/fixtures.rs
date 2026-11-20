@@ -42,10 +42,15 @@ fn every_implemented_rule_fires_on_a_fixture() {
     );
 }
 
+/// Diagnostics that list what the workspace declares, not what is wrong with it: they list in a
+/// conforming workspace too.
+const INVENTORIES: &[&str] = &["DCA-MAP-013", "DCA-STR-001"];
+
 #[test]
 fn no_rule_finds_anything_in_the_conforming_fixture() {
     let ws = fixture("conforming");
     let found: Vec<String> = rules::implemented()
+        .filter(|id| !INVENTORIES.contains(id))
         .flat_map(|id| violations(&ws, id))
         .collect();
     assert!(
@@ -268,4 +273,130 @@ fn a_domain_service_is_used_by_the_application_only() {
     assert!(has("`wire` calls `calculator.calculate`"), "{found:?}");
     assert!(!has("`wire` constructs"), "{found:?}");
     assert!(!has("Planner"), "{found:?}");
+}
+
+/// DCA-ERR-010: `let _ =`, an `Err(_)` arm, `.is_ok()`, `if let Ok(..)` and `catch_unwind` around a port call are
+/// reported; `?` after a `map_err` that uses the failure and an `Err(e)` arm are not.
+#[test]
+fn a_port_failure_is_answered_by_name() {
+    let found = violations(&fixture("violations"), "DCA-ERR-010");
+    let has = |text: &str| found.iter().any(|line| line.contains(text));
+    assert_eq!(found.len(), 7, "{found:?}");
+    assert!(
+        has(
+            "`ask_state` answers the failure of the port call `ports.other.run` with `.map_or(..)`"
+        ),
+        "{found:?}"
+    );
+    assert!(
+        has("`ask_held` answers the failure of the port call `ports.other.run` with `.ok(..)`"),
+        "{found:?}"
+    );
+    assert!(
+        has("`ask` answers the failure of the port call `port.run` with `if let Ok(..)`"),
+        "{found:?}"
+    );
+    assert!(
+        has("`keep` answers the failure of the port call `self.things.save` with `let _ =`"),
+        "{found:?}"
+    );
+    assert!(has("with an `Err(_)` arm"), "{found:?}");
+    assert!(
+        has("`try_keep` answers the failure of the port call `self.things.save` with `.is_ok(..)`"),
+        "{found:?}"
+    );
+    assert!(
+        has(
+            "`keep_anyway` answers the failure of the port call `self.things.save` with `catch_unwind`"
+        ),
+        "{found:?}"
+    );
+    assert!(!has("keep_named"), "{found:?}");
+}
+
+/// DCA-MAP-013 lists the declared edges of a conforming workspace; the context-map rules find
+/// nothing in it.
+#[test]
+fn the_declared_context_map_is_listed() {
+    let ws = fixture("conforming");
+    assert_eq!(
+        violations(&ws, "DCA-MAP-013"),
+        vec![
+            "[DCA-MAP-013] alpha-domain (alpha-domain/Cargo.toml): alpha -> beta via events (acl)"
+        ]
+    );
+}
+
+/// DCA-CYC-002 slices the whole application crate, the shared module included; DCA-CYC-005 slices
+/// the use cases and features only. DCA-CYC-001, 003 and 004 slice a domain crate's top-level
+/// modules and the modules below the adapter sides.
+#[test]
+fn cycles_inside_a_crate_are_found_per_slice() {
+    let ws = fixture("violations");
+    let has = |id: &str, text: &str| violations(&ws, id).iter().any(|line| line.contains(text));
+    assert!(has("DCA-CYC-002", "lookup -> shared -> lookup"));
+    assert!(has("DCA-CYC-002", "do_thing -> other -> do_thing"));
+    assert!(!has("DCA-CYC-005", "shared"));
+    assert!(has("DCA-CYC-001", "left -> right -> left"));
+    assert!(has(
+        "DCA-CYC-003",
+        "outgoing::east -> outgoing::west -> outgoing::east"
+    ));
+    assert!(has(
+        "DCA-CYC-004",
+        "incoming::first -> incoming::second -> incoming::first"
+    ));
+}
+
+/// DCA-LAY-004: the boundary named in the domain and a configured transaction type named in an
+/// incoming adapter are reported; the application's boundary is not.
+#[test]
+fn transactions_are_run_by_the_application() {
+    let found = violations(&fixture("violations"), "DCA-LAY-004");
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(
+        found.iter().any(|l| l.contains("alpha_domain")
+            && l.contains("the transaction boundary, in the domain crate")),
+        "{found:?}"
+    );
+    assert!(found.iter().any(|l| l.contains("`vendor_sdk::Client`, a transaction type, in an incoming adapter")), "{found:?}");
+}
+
+/// The router presets: a GET handler that builds a command is reported, the POST handler beside it
+/// and the conforming GET handler are not; a handler outside the incoming module is reported.
+#[test]
+fn handlers_are_found_through_the_router_presets() {
+    let ws = fixture("violations");
+    let hex_014 = violations(&ws, "DCA-HEX-014");
+    assert_eq!(hex_014.len(), 1, "{hex_014:?}");
+    assert!(hex_014[0].contains("`run` answers GET"), "{hex_014:?}");
+    let hex_018 = violations(&ws, "DCA-HEX-018");
+    assert_eq!(hex_018.len(), 1, "{hex_018:?}");
+    assert!(hex_018[0].contains("`health` is registered"), "{hex_018:?}");
+    let conforming = fixture("conforming");
+    assert!(violations(&conforming, "DCA-HEX-014").is_empty());
+    assert!(violations(&conforming, "DCA-HEX-018").is_empty());
+}
+
+/// DCA-HEX-016 lists `{:?}` (positional and named) and `.to_string()` on an inner enum, not `{}`.
+#[test]
+fn an_inner_enum_printed_by_an_adapter_is_listed() {
+    let found = violations(&fixture("violations"), "DCA-HEX-016");
+    assert_eq!(found.len(), 3, "{found:?}");
+    assert!(
+        !found.iter().any(|l| l.contains("Phase::Open")),
+        "{found:?}"
+    );
+}
+
+/// DCA-STR-001 lists each context with its crates.
+#[test]
+fn the_contexts_are_listed_with_their_crates() {
+    assert_eq!(
+        violations(&fixture("conforming"), "DCA-STR-001"),
+        vec![
+            "[DCA-STR-001] workspace: context `alpha`: alpha-adapters (adapters), alpha-application (application), alpha-domain (domain)",
+            "[DCA-STR-001] workspace: context `beta`: beta-api (api)",
+        ]
+    );
 }

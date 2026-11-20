@@ -1,0 +1,10 @@
+[package]
+name = "beta-module"
+version = "0.1.0"
+edition = "2024"
+
+# The two-crate form: a context without a layer, its layers as modules.
+[package.metadata.dca]
+context = "beta"
+
+[dependencies]

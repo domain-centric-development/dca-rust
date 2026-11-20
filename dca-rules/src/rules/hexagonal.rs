@@ -1,5 +1,8 @@
 //! Hexagonal rules: what the adapter sides may name, where ports and their implementations sit.
 
+use quote::ToTokens;
+use syn::spanned::Spanned;
+
 use super::{at, at_line, in_layer, target_has_role};
 use crate::Violation;
 use crate::model::{DeclKind, Layer, Target, Workspace};
@@ -394,4 +397,468 @@ pub fn hex_020(ws: &Workspace) -> Vec<Violation> {
         }
     }
     out
+}
+
+// --- handlers the router presets register ---------------------------------------------------------
+
+/// The HTTP verbs a router registers a handler for.
+const VERBS: &[&str] = &[
+    "get", "post", "put", "delete", "patch", "head", "options", "trace", "any",
+];
+
+/// A function a configured router preset registers as a handler.
+struct Handler {
+    module: usize,
+    name: String,
+    line: usize,
+    verbs: std::collections::BTreeSet<String>,
+}
+
+/// The verb a call registers through `krate`'s routing function (`get(..)`, `web::get()`), when the
+/// callee resolves to a function of that name in that crate.
+fn routing_verb(ws: &Workspace, m: usize, e: &syn::Expr, krate: &str) -> Option<String> {
+    let syn::Expr::Call(c) = e else { return None };
+    let syn::Expr::Path(p) = &*c.func else {
+        return None;
+    };
+    let (k, name) = ws.crate_and_name(&ws.resolve_path(m, &p.path)?)?;
+    (k == krate && VERBS.contains(&name.as_str())).then_some(name)
+}
+
+/// Collects the handlers a router expression registers: `axum` - a function passed to a routing
+/// function (`get(show)`) or to a verb method chained on one (`get(show).post(create)`);
+/// `actix-web` - a function passed to `.to(..)` on a routing function (`web::get().to(show)`).
+struct Registrations<'w> {
+    ws: &'w Workspace,
+    m: usize,
+    axum: bool,
+    actix: bool,
+    found: Vec<(syn::Path, String)>,
+}
+
+impl Registrations<'_> {
+    /// The verb of an axum method router expression: a routing call or a verb chained on one.
+    fn axum_router(&self, e: &syn::Expr) -> Option<String> {
+        match e {
+            syn::Expr::MethodCall(mc) if VERBS.contains(&mc.method.to_string().as_str()) => self
+                .axum_router(&mc.receiver)
+                .map(|_| mc.method.to_string()),
+            _ => routing_verb(self.ws, self.m, e, "axum"),
+        }
+    }
+
+    fn handler(&mut self, arg: Option<&syn::Expr>, verb: String) {
+        if let Some(syn::Expr::Path(p)) = arg {
+            self.found.push((p.path.clone(), verb));
+        }
+    }
+}
+
+impl<'ast> syn::visit::Visit<'ast> for Registrations<'_> {
+    fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
+        if self.axum
+            && let Some(verb) = routing_verb(self.ws, self.m, &syn::Expr::Call(c.clone()), "axum")
+        {
+            self.handler(c.args.first(), verb);
+        }
+        syn::visit::visit_expr_call(self, c);
+    }
+
+    fn visit_expr_method_call(&mut self, mc: &'ast syn::ExprMethodCall) {
+        let method = mc.method.to_string();
+        if self.axum && VERBS.contains(&method.as_str()) && self.axum_router(&mc.receiver).is_some()
+        {
+            self.handler(mc.args.first(), method.clone());
+        }
+        if self.actix
+            && method == "to"
+            && let Some(verb) = routing_verb(self.ws, self.m, &mc.receiver, "actix_web")
+        {
+            self.handler(mc.args.first(), verb);
+        }
+        syn::visit::visit_expr_method_call(self, mc);
+    }
+}
+
+/// Every handler the configured router presets register, anywhere in the workspace: a free function
+/// passed to a registration (axum, actix-web) or one that carries a route attribute (`#[get(..)]`,
+/// `#[route(..)]`; actix-web, rocket).
+fn handlers(ws: &Workspace) -> Vec<Handler> {
+    let routers = &ws.config.routers;
+    let axum = routers.contains("axum");
+    let actix = routers.contains("actix-web");
+    let attributes = actix || routers.contains("rocket");
+    let mut by_fn: std::collections::BTreeMap<(usize, String), Handler> = Default::default();
+    let mut add = |module: usize, name: String, line: usize, verb: String| {
+        by_fn
+            .entry((module, name.clone()))
+            .or_insert_with(|| Handler {
+                module,
+                name,
+                line,
+                verbs: Default::default(),
+            })
+            .verbs
+            .insert(verb);
+    };
+    for m in ws.project_modules() {
+        if axum || actix {
+            let mut r = Registrations {
+                ws,
+                m,
+                axum,
+                actix,
+                found: vec![],
+            };
+            for item in &ws.modules[m].items {
+                syn::visit::Visit::visit_item(&mut r, item);
+            }
+            for (path, verb) in r.found {
+                if let Some(Target::Decl(d)) = ws.resolve_path(m, &path)
+                    && ws.decls[d].kind == DeclKind::Fn
+                {
+                    add(
+                        ws.decls[d].module,
+                        ws.decl_name(d).to_string(),
+                        ws.decls[d].line,
+                        verb,
+                    );
+                }
+            }
+        }
+        if attributes {
+            for item in &ws.modules[m].items {
+                let syn::Item::Fn(f) = item else { continue };
+                for a in &f.attrs {
+                    let Some(last) = a.path().segments.last() else {
+                        continue;
+                    };
+                    let name = last.ident.to_string();
+                    let verb = if VERBS.contains(&name.as_str()) {
+                        name
+                    } else if name == "route" {
+                        let tokens = a.meta.to_token_stream().to_string();
+                        if tokens.contains("GET") {
+                            "get"
+                        } else {
+                            "route"
+                        }
+                        .to_string()
+                    } else {
+                        continue;
+                    };
+                    add(
+                        m,
+                        f.sig.ident.to_string(),
+                        f.sig.ident.span().start().line,
+                        verb,
+                    );
+                }
+            }
+        }
+    }
+    by_fn.into_values().collect()
+}
+
+/// DCA-HEX-018 (experimental): a handler the router presets register sits in the incoming module
+/// of an adapters crate.
+pub fn hex_018(ws: &Workspace) -> Vec<Violation> {
+    handlers(ws)
+        .into_iter()
+        .filter(|h| !ws.module_in_side(h.module, "incoming"))
+        .map(|h| {
+            at_line(ws, "DCA-HEX-018", h.module, &h.name, h.line, format!(
+                "`{}` is registered as a handler outside the incoming module of an adapters crate",
+                h.name
+            ))
+        })
+        .collect()
+}
+
+/// DCA-HEX-014 (experimental): a handler registered for GET names no command - it reads, so it
+/// drives no command port.
+pub fn hex_014(ws: &Workspace) -> Vec<Violation> {
+    let mut out = vec![];
+    for h in handlers(ws)
+        .into_iter()
+        .filter(|h| h.verbs.contains("get") && ws.module_in_side(h.module, "incoming"))
+    {
+        let Some(item) = ws.modules[h.module]
+            .items
+            .iter()
+            .find(|i| matches!(i, syn::Item::Fn(f) if f.sig.ident == h.name))
+        else {
+            continue;
+        };
+        let mut c = crate::model::PathCollector::default();
+        syn::visit::Visit::visit_item(&mut c, item);
+        let mut seen = std::collections::BTreeSet::new();
+        for p in &c.paths {
+            if let Some(Target::Decl(d)) = ws.resolve_path(h.module, p)
+                && ws.decl_name(d).ends_with("Command")
+                && in_layer(ws, d, Layer::Application)
+                && seen.insert(d)
+            {
+                out.push(at_line(ws, "DCA-HEX-014", h.module, &h.name, p.span().start().line, format!(
+                    "`{}` answers GET and builds the command `{}` - a GET reads; register the handler for POST, PUT, PATCH or DELETE",
+                    h.name,
+                    ws.decl_name(d)
+                )));
+            }
+        }
+    }
+    out
+}
+
+// --- what outgoing adapters do to an aggregate -----------------------------------------------------
+
+/// DCA-HEX-021 (experimental): an outgoing adapter calls no `&mut self` method of an aggregate - it
+/// stores the aggregate's state, it does not change it. A method of a building-block trait passes.
+pub fn hex_021(ws: &Workspace) -> Vec<Violation> {
+    struct Changes<'a> {
+        receivers: &'a super::Receivers,
+        mutating: &'a std::collections::BTreeSet<String>,
+        found: Vec<(usize, String)>,
+    }
+    impl<'ast> syn::visit::Visit<'ast> for Changes<'_> {
+        fn visit_expr_method_call(&mut self, mc: &'ast syn::ExprMethodCall) {
+            if self.mutating.contains(&mc.method.to_string())
+                && let Some(r) = self.receivers.named_by(&mc.receiver)
+            {
+                self.found
+                    .push((mc.method.span().start().line, format!("{r}.{}", mc.method)));
+            }
+            syn::visit::visit_expr_method_call(self, mc);
+        }
+    }
+    let roots: Vec<usize> = ws
+        .types_with_role("AggregateRoot")
+        .filter(|d| !ws.is_building_block_decl(*d))
+        .collect();
+    let mut out = vec![];
+    for m in side_modules(ws, "outgoing", false) {
+        for f in super::functions(ws, m) {
+            for d in &roots {
+                let mutating: std::collections::BTreeSet<String> = ws
+                    .methods(*d)
+                    .into_iter()
+                    .filter(|mm| {
+                        mm.receiver_mut()
+                            && mm
+                                .trait_target
+                                .as_ref()
+                                .is_none_or(|t| ws.building_block(t).is_none())
+                    })
+                    .map(|mm| mm.name)
+                    .collect();
+                if mutating.is_empty() {
+                    continue;
+                }
+                let receivers = super::Receivers::of(ws, m, &f, &|t| *t == Target::Decl(*d));
+                if receivers.is_empty() {
+                    continue;
+                }
+                let mut v = Changes {
+                    receivers: &receivers,
+                    mutating: &mutating,
+                    found: vec![],
+                };
+                syn::visit::Visit::visit_block(&mut v, f.block);
+                for (line, call) in v.found {
+                    out.push(at_line(ws, "DCA-HEX-021", m, &f.name(), line, format!(
+                        "`{}` calls `{call}`, which changes the aggregate `{}` - an outgoing adapter stores what the aggregate decided",
+                        f.name(),
+                        ws.decl_name(*d)
+                    )));
+                }
+            }
+        }
+    }
+    out
+}
+
+// --- enums formatted for the outside ---------------------------------------------------------------
+
+const FORMAT_MACROS: &[&str] = &[
+    "format",
+    "format_args",
+    "write",
+    "writeln",
+    "print",
+    "println",
+    "eprint",
+    "eprintln",
+    "panic",
+];
+
+/// The arguments a format string formats with `?`: positional indexes and names.
+fn debug_arguments(fmt: &str) -> (Vec<usize>, Vec<String>) {
+    let mut positions = vec![];
+    let mut names = vec![];
+    let mut next = 0;
+    let mut chars = fmt.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            if chars.peek() == Some(&'{') {
+                chars.next();
+                continue;
+            }
+            let mut inner = String::new();
+            for c in chars.by_ref() {
+                if c == '}' {
+                    break;
+                }
+                inner.push(c);
+            }
+            let (arg, spec) = inner.split_once(':').unwrap_or((inner.as_str(), ""));
+            let arg = arg.trim();
+            let index = if arg.is_empty() {
+                next += 1;
+                Some(next - 1)
+            } else {
+                arg.parse::<usize>().ok()
+            };
+            if spec.contains('?') {
+                match index {
+                    Some(i) => positions.push(i),
+                    None => names.push(arg.to_string()),
+                }
+            }
+        }
+    }
+    (positions, names)
+}
+
+/// DCA-HEX-016 (experimental, informational): an adapter writes the outside's representation, not
+/// the name of an inner enum's variant - lists `.to_string()` and `{:?}` applied to an enum declared
+/// in a domain or application crate.
+pub fn hex_016(ws: &Workspace) -> Vec<Violation> {
+    struct Formats<'w> {
+        ws: &'w Workspace,
+        m: usize,
+        receivers: &'w super::Receivers,
+        found: Vec<(usize, String, &'static str)>,
+    }
+    impl Formats<'_> {
+        /// The enum an expression is, by name: a receiver typed as one, or a path to one of its
+        /// variants.
+        fn inner_enum(&self, e: &syn::Expr) -> Option<String> {
+            if let Some(r) = self.receivers.named_by(e) {
+                return Some(r);
+            }
+            let syn::Expr::Path(p) = e else { return None };
+            if let Some(Target::Decl(d)) = self.ws.resolve_path(self.m, &p.path)
+                && is_inner_enum(self.ws, d)
+            {
+                return Some(super::render_path(&p.path));
+            }
+            None
+        }
+    }
+    impl<'ast> syn::visit::Visit<'ast> for Formats<'_> {
+        fn visit_expr_method_call(&mut self, mc: &'ast syn::ExprMethodCall) {
+            if mc.method == "to_string"
+                && let Some(what) = self.inner_enum(&mc.receiver)
+            {
+                self.found
+                    .push((mc.method.span().start().line, what, "`.to_string()`"));
+            }
+            syn::visit::visit_expr_method_call(self, mc);
+        }
+
+        fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+            let is_format = mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|s| FORMAT_MACROS.contains(&s.ident.to_string().as_str()));
+            if is_format
+                && let Ok(args) = mac.parse_body_with(
+                    syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
+                )
+            {
+                let args: Vec<&syn::Expr> = args.iter().collect();
+                if let Some(at) = args.iter().position(
+                    |a| matches!(a, syn::Expr::Lit(l) if matches!(l.lit, syn::Lit::Str(_))),
+                ) && let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(s),
+                    ..
+                }) = args[at]
+                {
+                    let (positions, names) = debug_arguments(&s.value());
+                    let rest = &args[at + 1..];
+                    let positional: Vec<&syn::Expr> = rest
+                        .iter()
+                        .copied()
+                        .filter(|a| !matches!(a, syn::Expr::Assign(_)))
+                        .collect();
+                    let mut formatted: Vec<syn::Expr> = positions
+                        .iter()
+                        .filter_map(|i| positional.get(*i).map(|e| (*e).clone()))
+                        .collect();
+                    for n in names {
+                        let named = rest.iter().find_map(|a| match a {
+                            syn::Expr::Assign(asg)
+                                if matches!(&*asg.left, syn::Expr::Path(p) if p.path.is_ident(&n)) =>
+                            {
+                                Some((*asg.right).clone())
+                            }
+                            _ => None,
+                        });
+                        match named {
+                            Some(e) => formatted.push(e),
+                            None => {
+                                if let Ok(e) = syn::parse_str::<syn::Expr>(&n) {
+                                    formatted.push(e);
+                                }
+                            }
+                        }
+                    }
+                    for e in formatted {
+                        if let Some(what) = self.inner_enum(&e) {
+                            self.found.push((s.span().start().line, what, "`{:?}`"));
+                        }
+                    }
+                }
+            }
+            syn::visit::visit_macro(self, mac);
+        }
+    }
+    let mut out = vec![];
+    for m in ws
+        .project_modules()
+        .filter(|m| ws.module_layer(*m) == Some(Layer::Adapters))
+    {
+        for f in super::functions(ws, m) {
+            let receivers = super::Receivers::of(
+                ws,
+                m,
+                &f,
+                &|t| matches!(t, Target::Decl(d) if is_inner_enum(ws, *d)),
+            );
+            let mut v = Formats {
+                ws,
+                m,
+                receivers: &receivers,
+                found: vec![],
+            };
+            syn::visit::Visit::visit_block(&mut v, f.block);
+            for (line, what, how) in v.found {
+                out.push(at_line(ws, "DCA-HEX-016", m, &f.name(), line, format!(
+                    "`{}` writes `{what}` with {how} - check: is the variant's name the outside's representation, or should the adapter map it?",
+                    f.name()
+                )));
+            }
+        }
+    }
+    out
+}
+
+fn is_inner_enum(ws: &Workspace, d: usize) -> bool {
+    ws.decls[d].kind == DeclKind::Enum
+        && !ws.is_building_block_decl(d)
+        && matches!(
+            ws.layer_of_decl(d),
+            Some(Layer::Domain | Layer::Application)
+        )
 }

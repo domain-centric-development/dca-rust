@@ -71,6 +71,125 @@ pub struct Crate {
     pub metadata: serde_json::Value,
     /// The crate's root module, if it has a library or binary target.
     pub root: Option<usize>,
+    /// The context-map declarations in its `[package.metadata.dca]`.
+    pub map: ContextMap,
+}
+
+/// The context-map declarations of a crate, from `[package.metadata.dca]`:
+///
+/// ```toml
+/// [[package.metadata.dca.upstreams]]
+/// context = "billing"            # the upstream context
+/// via = ["api", "events"]        # the channels consumed: api, events
+/// translation = "acl"            # acl | conformist
+/// status = "implemented"         # implemented (default) | planned
+///
+/// [[package.metadata.dca.external-upstreams]]
+/// name = "Payment Provider"      # the external system, not a context
+/// interaction = "outbound"       # outbound (this context calls it) | inbound (it calls this context)
+/// translation = "acl"            # acl | conformist
+/// contract-crates = ["provider-sdk"]   # the crates that carry its contract types, if any
+/// status = "implemented"
+///
+/// [[package.metadata.dca.partnerships]]
+/// context = "shipping"
+/// ```
+///
+/// Values are kept as written; the context-map rules report what they do not accept.
+#[derive(Debug, Clone, Default)]
+pub struct ContextMap {
+    pub upstreams: Vec<UpstreamDecl>,
+    pub external_upstreams: Vec<ExternalUpstreamDecl>,
+    pub partnerships: Vec<String>,
+}
+
+impl ContextMap {
+    pub fn is_empty(&self) -> bool {
+        self.upstreams.is_empty()
+            && self.external_upstreams.is_empty()
+            && self.partnerships.is_empty()
+    }
+
+    fn from_json(v: &serde_json::Value) -> ContextMap {
+        let entries = |key: &str| -> Vec<serde_json::Value> {
+            v.get(key)
+                .and_then(|x| x.as_array())
+                .cloned()
+                .unwrap_or_default()
+        };
+        let text = |e: &serde_json::Value, key: &str| -> String {
+            e.get(key)
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+        let texts = |e: &serde_json::Value, key: &str| -> Vec<String> {
+            e.get(key)
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let status = |e: &serde_json::Value| -> String {
+            e.get("status")
+                .and_then(|x| x.as_str())
+                .unwrap_or("implemented")
+                .to_string()
+        };
+        ContextMap {
+            upstreams: entries("upstreams")
+                .iter()
+                .map(|e| UpstreamDecl {
+                    context: text(e, "context"),
+                    via: texts(e, "via"),
+                    translation: text(e, "translation"),
+                    status: status(e),
+                })
+                .collect(),
+            external_upstreams: entries("external-upstreams")
+                .iter()
+                .map(|e| ExternalUpstreamDecl {
+                    name: text(e, "name"),
+                    interaction: text(e, "interaction"),
+                    translation: text(e, "translation"),
+                    contract_crates: texts(e, "contract-crates"),
+                    status: status(e),
+                })
+                .collect(),
+            partnerships: entries("partnerships")
+                .iter()
+                .map(|e| text(e, "context"))
+                .collect(),
+        }
+    }
+}
+
+/// An `upstreams` entry: this context consumes another context's published channels.
+#[derive(Debug, Clone)]
+pub struct UpstreamDecl {
+    pub context: String,
+    pub via: Vec<String>,
+    pub translation: String,
+    pub status: String,
+}
+
+impl UpstreamDecl {
+    pub fn implemented(&self) -> bool {
+        self.status == "implemented"
+    }
+}
+
+/// An `external-upstreams` entry: a system outside the workspace this context exchanges with.
+#[derive(Debug, Clone)]
+pub struct ExternalUpstreamDecl {
+    pub name: String,
+    pub interaction: String,
+    pub translation: String,
+    pub contract_crates: Vec<String>,
+    pub status: String,
 }
 
 /// A module: a file or an inline `mod { }`.
@@ -112,6 +231,17 @@ pub struct Config {
     /// Functions whose call in a router's layer declares a claims-only authorization for the routes
     /// added before it (`.route_layer(require_role(...))`). Empty by default.
     pub authorization_layers: BTreeSet<String>,
+    /// Types code runs a transaction with, as `crate::Type` (the crate's name in source and the
+    /// type's name; the modules between are not compared). A preset of common database crates by
+    /// default.
+    pub transaction_types: BTreeSet<String>,
+    /// The router presets whose handler registrations the suite reads: `axum`, `actix-web`,
+    /// `rocket`. Empty by default.
+    pub routers: BTreeSet<String>,
+    /// Crates of persistence and transactions an application crate does not depend on.
+    pub persistence_crates: BTreeSet<String>,
+    /// Crates of an async runtime the domain names no type of.
+    pub async_runtime_crates: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +307,33 @@ impl Config {
                 .to_string(),
             authorization_extractors: list("authorization-extractors", &[]),
             authorization_layers: list("authorization-layers", &[]),
+            transaction_types: list(
+                "transaction-types",
+                &[
+                    "sqlx::Transaction",
+                    "diesel::connection::AnsiTransactionManager",
+                    "sea_orm::DatabaseTransaction",
+                    "rusqlite::Transaction",
+                    "tokio_postgres::Transaction",
+                    "mongodb::ClientSession",
+                ],
+            ),
+            routers: list("routers", &[]),
+            persistence_crates: list(
+                "persistence-crates",
+                &[
+                    "sqlx",
+                    "diesel",
+                    "sea-orm",
+                    "rusqlite",
+                    "tokio-postgres",
+                    "mongodb",
+                ],
+            ),
+            async_runtime_crates: list(
+                "async-runtime-crates",
+                &["tokio", "async-std", "futures", "smol"],
+            ),
         }
     }
 }
@@ -363,6 +520,7 @@ impl Workspace {
                     .parent()
                     .map(|p| p.to_path_buf().into_std_path_buf())
                     .unwrap_or_default(),
+                map: ContextMap::from_json(&dca),
                 metadata: dca,
                 root: None,
             });
@@ -1015,6 +1173,74 @@ impl Workspace {
                 p.join("::")
             }
         }
+    }
+
+    /// The contexts the crates declare.
+    pub fn contexts(&self) -> BTreeSet<String> {
+        self.crates
+            .iter()
+            .filter_map(|c| c.context.clone())
+            .collect()
+    }
+
+    /// The crate that declares a context and carries its context-map declarations: its domain
+    /// crate, or, without one, its crate that names no layer.
+    pub fn declaring_crate(&self, context: &str) -> Option<usize> {
+        let of = |layer: Option<Layer>| {
+            self.crates
+                .iter()
+                .position(|c| c.context.as_deref() == Some(context) && c.layer == layer)
+        };
+        of(Some(Layer::Domain)).or_else(|| of(None))
+    }
+
+    /// The api crate of a context.
+    pub fn api_crate(&self, context: &str) -> Option<usize> {
+        self.crates
+            .iter()
+            .position(|c| c.context.as_deref() == Some(context) && c.layer == Some(Layer::Api))
+    }
+
+    /// The published channel a module belongs to, with its context, when it lies in an api crate:
+    /// `events` for the events module and below, `api` for the rest of the crate.
+    pub fn channel_of(&self, m: usize) -> Option<(String, &'static str)> {
+        let c = &self.crates[self.modules[m].krate];
+        if c.layer != Some(Layer::Api) {
+            return None;
+        }
+        let ctx = c.context.clone()?;
+        let channel = if self.modules[m].path.first().map(String::as_str) == Some("events") {
+            "events"
+        } else {
+            "api"
+        };
+        Some((ctx, channel))
+    }
+
+    /// The crate a target lies in, by the name the source uses, and the target's own name.
+    pub fn crate_and_name(&self, t: &Target) -> Option<(String, String)> {
+        match t {
+            Target::External { krate, path } => Some((krate.clone(), path.last()?.clone())),
+            Target::Decl(d) => Some((
+                self.crate_of_decl(*d).ident.clone(),
+                self.decls[*d].name.clone(),
+            )),
+            Target::Module(_) => None,
+        }
+    }
+
+    /// Whether a target is one of `configured`, written `crate::Type` or `crate::module::Type`:
+    /// the crate and the last name are compared.
+    pub fn is_configured(&self, t: &Target, configured: &BTreeSet<String>) -> bool {
+        let Some((krate, name)) = self.crate_and_name(t) else {
+            return false;
+        };
+        configured.iter().any(|c| {
+            let segs: Vec<&str> = c.split("::").collect();
+            segs.len() >= 2
+                && segs[0].replace('-', "_") == krate
+                && segs.last() == Some(&name.as_str())
+        })
     }
 
     /// The workspace crate a dependency names.

@@ -1,10 +1,12 @@
 # Never built: the rule suite reads it and expects no rule to find anything.
 [workspace]
 resolver = "3"
-members = ["alpha-domain", "alpha-application", "alpha-adapters", "bootstrap"]
+members = ["alpha-domain", "alpha-application", "alpha-adapters", "bootstrap", "beta-api"]
 
 [workspace.metadata.dca]
 experimental = "all"
 # DCA-HEX-020: the project's declarative forms of a claims-only check.
 authorization-extractors = ["RequireRole"]
 authorization-layers = ["require_role"]
+# DCA-HEX-014/018: the router preset whose registrations the suite reads.
+routers = ["axum"]

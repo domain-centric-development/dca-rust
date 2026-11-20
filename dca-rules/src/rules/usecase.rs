@@ -444,3 +444,179 @@ pub fn use_019(ws: &Workspace) -> Vec<Violation> {
     }
     out
 }
+
+/// DCA-USE-021: a use case holds no state it changes - no `&mut self` method, no interior
+/// mutability in a field.
+pub fn use_021(ws: &Workspace) -> Vec<Violation> {
+    ws.types_with_role("InputPort")
+        .filter(|d| !ws.is_building_block_decl(*d))
+        .flat_map(|d| immutability(ws, "DCA-USE-021", d, "use case", false))
+        .collect()
+}
+
+/// The success type a use case answers with: `T` of `Result<T, _>`, else the type itself.
+fn success(ty: &syn::Type) -> &syn::Type {
+    if let syn::Type::Path(tp) = ty
+        && let Some(last) = tp.path.segments.last()
+        && last.ident == "Result"
+        && let syn::PathArguments::AngleBracketed(args) = &last.arguments
+        && let Some(syn::GenericArgument::Type(t)) = args.args.first()
+    {
+        return t;
+    }
+    ty
+}
+
+/// The primitive a type is, when it is `String`, `str` (through references), `bool`, `char` or a
+/// numeric primitive.
+fn primitive(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Reference(r) => primitive(&r.elem),
+        syn::Type::Paren(p) => primitive(&p.elem),
+        syn::Type::Path(tp) if tp.qself.is_none() && tp.path.segments.len() == 1 => {
+            let id = tp.path.segments[0].ident.to_string();
+            const NAMES: &[&str] = &[
+                "String", "str", "bool", "char", "i8", "i16", "i32", "i64", "i128", "isize", "u8",
+                "u16", "u32", "u64", "u128", "usize", "f32", "f64",
+            ];
+            (NAMES.contains(&id.as_str()) && tp.path.segments[0].arguments.is_none()).then_some(id)
+        }
+        _ => None,
+    }
+}
+
+/// DCA-USE-022: a use case answers with a result type, not a bare primitive - the `Output` of an
+/// `impl UseCase<I>` block or of a trait's `UseCase<I, Output = ..>` bound, or the success type of
+/// the `Result` it names.
+pub fn use_022(ws: &Workspace) -> Vec<Violation> {
+    let is_use_case = |t: &Option<Target>| {
+        t.as_ref()
+            .is_some_and(|t| ws.building_block(t).as_deref() == Some("UseCase"))
+    };
+    let mut out = vec![];
+    let report = |m: usize, name: &str, line: usize, prim: String, out: &mut Vec<Violation>| {
+        out.push(super::at_line(ws, "DCA-USE-022", m, name, line, format!(
+            "`{name}` answers with the bare `{prim}`; answer with a result type that names what the use case found or did"
+        )));
+    };
+    for imp in &ws.impls {
+        if !is_use_case(&imp.trait_target) {
+            continue;
+        }
+        let syn::Item::Impl(item) = &ws.modules[imp.module].items[imp.item] else {
+            continue;
+        };
+        for ii in &item.items {
+            if let syn::ImplItem::Type(t) = ii
+                && t.ident == "Output"
+                && let Some(prim) = primitive(success(&t.ty))
+            {
+                let name = imp
+                    .self_decl
+                    .map(|d| ws.decl_name(d).to_string())
+                    .unwrap_or_default();
+                report(
+                    imp.module,
+                    &name,
+                    t.ident.span().start().line,
+                    prim,
+                    &mut out,
+                );
+            }
+        }
+    }
+    for d in ws.trait_decls() {
+        let syn::Item::Trait(t) = ws.item(d) else {
+            continue;
+        };
+        let m = ws.decls[d].module;
+        for bound in &t.supertraits {
+            let syn::TypeParamBound::Trait(tb) = bound else {
+                continue;
+            };
+            if !is_use_case(&ws.resolve_path(m, &tb.path)) {
+                continue;
+            }
+            let Some(last) = tb.path.segments.last() else {
+                continue;
+            };
+            if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                for arg in &args.args {
+                    if let syn::GenericArgument::AssocType(b) = arg
+                        && b.ident == "Output"
+                        && let Some(prim) = primitive(success(&b.ty))
+                    {
+                        report(m, ws.decl_name(d), ws.decls[d].line, prim, &mut out);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether an input-port trait takes a command: the input of a `UseCase<..>` bound, or a parameter
+/// of one of its methods, is a type whose name ends with `Command`.
+fn takes_command(ws: &Workspace, d: usize) -> bool {
+    let syn::Item::Trait(t) = ws.item(d) else {
+        return false;
+    };
+    let in_bound = t.supertraits.iter().any(|b| {
+        let syn::TypeParamBound::Trait(tb) = b else {
+            return false;
+        };
+        tb.path.segments.last().is_some_and(|s| {
+            matches!(&s.arguments, syn::PathArguments::AngleBracketed(a)
+                if a.args.iter().any(|g| matches!(g, syn::GenericArgument::Type(ty)
+                    if type_idents(ty).iter().any(|i| i.ends_with("Command")))))
+        })
+    });
+    in_bound
+        || ws.trait_methods(d).iter().any(|m| {
+            m.params()
+                .iter()
+                .any(|p| type_idents(p).iter().any(|i| i.ends_with("Command")))
+        })
+}
+
+/// DCA-USE-018 (experimental): an incoming adapter's item drives the commands of one feature only.
+/// A feature is the top-level module of an application crate that groups use cases
+/// (`application::<feature>::<use_case>`); an input port declared at that depth or below belongs to
+/// it, one declared directly in a top-level module to none.
+pub fn use_018(ws: &Workspace) -> Vec<Violation> {
+    let feature_of = |d: usize| -> Option<String> {
+        let p = &ws.modules[ws.decls[d].module].path;
+        (in_layer(ws, d, Layer::Application)
+            && p.len() >= 2
+            && p[0] != "shared"
+            && ws.has_role(d, "InputPort")
+            && takes_command(ws, d))
+        .then(|| p[0].clone())
+    };
+    let mut out = vec![];
+    for m in ws
+        .project_modules()
+        .filter(|m| ws.module_in_side(*m, "incoming"))
+    {
+        for item in &ws.modules[m].items {
+            let mut c = crate::model::PathCollector::default();
+            syn::visit::Visit::visit_item(&mut c, item);
+            let features: BTreeSet<String> = c
+                .paths
+                .iter()
+                .filter_map(|p| match ws.resolve_path(m, p) {
+                    Some(Target::Decl(d)) if ws.decls[d].kind == DeclKind::Trait => feature_of(d),
+                    _ => None,
+                })
+                .collect();
+            if features.len() > 1 {
+                let line = syn::spanned::Spanned::span(item).start().line;
+                out.push(super::at_line(ws, "DCA-USE-018", m, "", line, format!(
+                    "drives the commands of the features {} in one item - give each feature its own adapter",
+                    features.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+                )));
+            }
+        }
+    }
+    out
+}

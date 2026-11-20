@@ -11,3 +11,5 @@ layer = "adapters"
 dca-building-blocks = { path = "../../../../dca-building-blocks" }
 alpha-domain = { path = "../alpha-domain" }
 alpha-application = { path = "../alpha-application" }
+beta-api = { path = "../beta-api" }
+axum = "0.8"

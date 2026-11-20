@@ -7,9 +7,14 @@ edition = "2024"
 context = "alpha"
 layer = "application"
 
+# DCA-MAP-001: a context-map declaration outside the domain crate.
+[[package.metadata.dca.partnerships]]
+context = "beta"
+
 [dependencies]
 dca-building-blocks = { path = "../../../../dca-building-blocks" }
 alpha-domain = { path = "../alpha-domain" }
 alpha-adapters = { path = "../alpha-adapters" }
 alpha-infrastructure = { path = "../alpha-infrastructure" }
 beta-api = { path = "../beta-api" }
+vendor-sdk = { path = "../vendor-sdk" }

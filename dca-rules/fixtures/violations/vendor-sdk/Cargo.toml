@@ -1,0 +1,7 @@
+[package]
+name = "vendor-sdk"
+version = "0.1.0"
+edition = "2024"
+
+# Stands for the SDK of a system outside the workspace: the contract crate of an external upstream.
+[dependencies]

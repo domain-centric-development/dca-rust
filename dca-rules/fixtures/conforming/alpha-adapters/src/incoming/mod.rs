@@ -24,3 +24,31 @@ pub mod admin {
         200
     }
 }
+
+/// The event consumer: translates beta's integration event into alpha's own terms.
+pub mod event {
+    use beta_api::events::PartShipped;
+
+    pub struct ShippedPart {
+        pub part: u128,
+    }
+
+    pub fn on_part_shipped(event: &PartShipped) -> ShippedPart {
+        ShippedPart { part: event.part }
+    }
+}
+
+/// The routes: a command behind POST, a read behind GET.
+pub mod web {
+    use axum::routing::{get, post};
+
+    pub fn router() -> axum::Router {
+        axum::Router::new()
+            .route("/things/{thing}/parts", post(super::add_part))
+            .route("/health", get(health))
+    }
+
+    pub fn health() -> u16 {
+        200
+    }
+}

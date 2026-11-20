@@ -1,10 +1,12 @@
 //! The implemented rules and what they share.
 
+mod context_map;
 mod cycles;
 mod errors;
 mod events;
 mod graph;
 mod hexagonal;
+mod layered;
 mod naming;
 mod rust;
 mod strategic;
@@ -57,9 +59,13 @@ macro_rules! define_rules {
 define_rules! { $;
     dca_lay_002 => "DCA-LAY-002" => graph::lay_002,
     dca_lay_003 => "DCA-LAY-003" => graph::lay_003,
+    dca_lay_004 => "DCA-LAY-004" => layered::lay_004,
+    dca_lay_007 => "DCA-LAY-007" => layered::lay_007,
+    dca_lay_008 => "DCA-LAY-008" => layered::lay_008,
     dca_oni_001 => "DCA-ONI-001" => graph::oni_001,
     dca_oni_002 => "DCA-ONI-002" => graph::oni_002,
     dca_oni_003 => "DCA-ONI-003" => events::oni_003,
+    dca_oni_004 => "DCA-ONI-004" => layered::oni_004,
     dca_hex_001 => "DCA-HEX-001" => graph::hex_001,
     dca_hex_002 => "DCA-HEX-002" => graph::hex_002,
     dca_hex_003 => "DCA-HEX-003" => hexagonal::hex_003,
@@ -73,8 +79,12 @@ define_rules! { $;
     dca_hex_011 => "DCA-HEX-011" => hexagonal::hex_011,
     dca_hex_012 => "DCA-HEX-012" => hexagonal::hex_012,
     dca_hex_013 => "DCA-HEX-013" => hexagonal::hex_013,
+    dca_hex_014 => "DCA-HEX-014" => hexagonal::hex_014,
+    dca_hex_016 => "DCA-HEX-016" => hexagonal::hex_016,
+    dca_hex_018 => "DCA-HEX-018" => hexagonal::hex_018,
     dca_hex_019 => "DCA-HEX-019" => hexagonal::hex_019,
     dca_hex_020 => "DCA-HEX-020" => hexagonal::hex_020,
+    dca_hex_021 => "DCA-HEX-021" => hexagonal::hex_021,
     dca_tac_001 => "DCA-TAC-001" => tactical::tac_001,
     dca_tac_002 => "DCA-TAC-002" => tactical::tac_002,
     dca_tac_003 => "DCA-TAC-003" => tactical::tac_003,
@@ -98,6 +108,7 @@ define_rules! { $;
     dca_tac_024 => "DCA-TAC-024" => tactical::tac_024,
     dca_tac_025 => "DCA-TAC-025" => tactical::tac_025,
     dca_tac_026 => "DCA-TAC-026" => tactical::tac_026,
+    dca_str_001 => "DCA-STR-001" => graph::str_001,
     dca_str_002 => "DCA-STR-002" => graph::str_002,
     dca_str_003 => "DCA-STR-003" => graph::str_003,
     dca_str_004 => "DCA-STR-004" => graph::str_004,
@@ -142,7 +153,10 @@ define_rules! { $;
     dca_use_015 => "DCA-USE-015" => usecase::use_015,
     dca_use_016 => "DCA-USE-016" => usecase::use_016,
     dca_use_017 => "DCA-USE-017" => usecase::use_017,
+    dca_use_018 => "DCA-USE-018" => usecase::use_018,
     dca_use_019 => "DCA-USE-019" => usecase::use_019,
+    dca_use_021 => "DCA-USE-021" => usecase::use_021,
+    dca_use_022 => "DCA-USE-022" => usecase::use_022,
     dca_nam_001 => "DCA-NAM-001" => naming::nam_001,
     dca_nam_003 => "DCA-NAM-003" => naming::nam_003,
     dca_nam_004 => "DCA-NAM-004" => naming::nam_004,
@@ -153,14 +167,33 @@ define_rules! { $;
     dca_nam_011 => "DCA-NAM-011" => naming::nam_011,
     dca_nam_012 => "DCA-NAM-012" => naming::nam_012,
     dca_nam_013 => "DCA-NAM-013" => naming::nam_013,
+    dca_map_001 => "DCA-MAP-001" => context_map::map_001,
+    dca_map_002 => "DCA-MAP-002" => context_map::map_002,
+    dca_map_004 => "DCA-MAP-004" => context_map::map_004,
+    dca_map_005 => "DCA-MAP-005" => context_map::map_005,
+    dca_map_006 => "DCA-MAP-006" => context_map::map_006,
+    dca_map_007 => "DCA-MAP-007" => context_map::map_007,
+    dca_map_008 => "DCA-MAP-008" => context_map::map_008,
+    dca_map_009 => "DCA-MAP-009" => context_map::map_009,
+    dca_map_010 => "DCA-MAP-010" => context_map::map_010,
+    dca_map_011 => "DCA-MAP-011" => context_map::map_011,
+    dca_map_012 => "DCA-MAP-012" => context_map::map_012,
+    dca_map_013 => "DCA-MAP-013" => context_map::map_013,
+    dca_map_014 => "DCA-MAP-014" => context_map::map_014,
+    dca_cyc_001 => "DCA-CYC-001" => cycles::cyc_001,
+    dca_cyc_002 => "DCA-CYC-002" => cycles::cyc_002,
+    dca_cyc_003 => "DCA-CYC-003" => cycles::cyc_003,
+    dca_cyc_004 => "DCA-CYC-004" => cycles::cyc_004,
     dca_cyc_005 => "DCA-CYC-005" => cycles::cyc_005,
     dca_err_001 => "DCA-ERR-001" => errors::err_001,
     dca_err_002 => "DCA-ERR-002" => errors::err_002,
     dca_err_003 => "DCA-ERR-003" => errors::err_003,
     dca_err_005 => "DCA-ERR-005" => errors::err_005,
     dca_err_006 => "DCA-ERR-006" => errors::err_006,
+    dca_err_007 => "DCA-ERR-007" => errors::err_007,
     dca_err_008 => "DCA-ERR-008" => errors::err_008,
     dca_err_009 => "DCA-ERR-009" => errors::err_009,
+    dca_err_010 => "DCA-ERR-010" => errors::err_010,
     dca_rs_001 => "DCA-RS-001" => rust::rs_001,
     dca_rs_002 => "DCA-RS-002" => rust::rs_002,
     dca_rs_003 => "DCA-RS-003" => rust::rs_003,
@@ -319,6 +352,14 @@ pub(crate) fn immutability(
     out
 }
 
+pub(crate) fn render_path(p: &syn::Path) -> String {
+    p.segments
+        .iter()
+        .map(|s| s.ident.to_string())
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
 pub(crate) fn render(ty: &syn::Type) -> String {
     ty.to_token_stream()
         .to_string()
@@ -430,4 +471,243 @@ pub(crate) fn use_cases(ws: &Workspace) -> Vec<usize> {
 
 pub(crate) fn is_kind(ws: &Workspace, d: usize, kind: DeclKind) -> bool {
     ws.decls[d].kind == kind
+}
+
+/// A function body of a module: a free function, a method of an impl block or a trait's default
+/// method.
+pub(crate) struct Function<'a> {
+    pub sig: &'a syn::Signature,
+    pub block: &'a syn::Block,
+    /// The type an impl block is for, when the workspace declares it.
+    pub self_decl: Option<usize>,
+    /// The generics of the enclosing impl block or trait.
+    pub outer_generics: Option<&'a syn::Generics>,
+}
+
+impl Function<'_> {
+    pub fn name(&self) -> String {
+        self.sig.ident.to_string()
+    }
+
+    pub fn generics(&self) -> Vec<&syn::Generics> {
+        let mut g: Vec<&syn::Generics> = self.outer_generics.into_iter().collect();
+        g.push(&self.sig.generics);
+        g
+    }
+}
+
+/// Every function body of module `m`.
+pub(crate) fn functions(ws: &Workspace, m: usize) -> Vec<Function<'_>> {
+    let mut out = vec![];
+    for (idx, item) in ws.modules[m].items.iter().enumerate() {
+        match item {
+            syn::Item::Fn(f) => out.push(Function {
+                sig: &f.sig,
+                block: &f.block,
+                self_decl: None,
+                outer_generics: None,
+            }),
+            syn::Item::Impl(block) => {
+                let self_decl = ws
+                    .impls
+                    .iter()
+                    .find(|i| i.module == m && i.item == idx)
+                    .and_then(|i| i.self_decl);
+                for it in &block.items {
+                    if let syn::ImplItem::Fn(f) = it {
+                        out.push(Function {
+                            sig: &f.sig,
+                            block: &f.block,
+                            self_decl,
+                            outer_generics: Some(&block.generics),
+                        });
+                    }
+                }
+            }
+            syn::Item::Trait(t) => {
+                for it in &t.items {
+                    if let syn::TraitItem::Fn(f) = it
+                        && let Some(block) = &f.default
+                    {
+                        out.push(Function {
+                            sig: &f.sig,
+                            block,
+                            self_decl: None,
+                            outer_generics: Some(&t.generics),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The parameters and the fields of `self` of a function whose type names a target `pred` accepts.
+/// A field's type is read with the generics of its struct and of the impl block, so a bound written
+/// on the impl counts; a local binding counts when its type is written out. A parameter bound
+/// through a one-field pattern (`State(ports): State<Ports>`) counts by the types its type names; a
+/// parameter whose type is a struct of the workspace counts for the fields of that struct `pred`
+/// accepts (`ports.add`).
+#[derive(Default, Debug)]
+pub(crate) struct Receivers {
+    pub names: BTreeSet<String>,
+    pub fields: BTreeSet<String>,
+    pub held: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl Receivers {
+    pub fn of(
+        ws: &Workspace,
+        m: usize,
+        f: &Function<'_>,
+        pred: &dyn Fn(&Target) -> bool,
+    ) -> Receivers {
+        let generics = f.generics();
+        let mut out = Receivers::default();
+        for a in &f.sig.inputs {
+            let syn::FnArg::Typed(pt) = a else { continue };
+            let Some(name) = binding(&pt.pat) else {
+                continue;
+            };
+            let targets = ws.type_targets(m, &pt.ty, &generics);
+            if targets.iter().any(pred) {
+                out.names.insert(name);
+                continue;
+            }
+            for t in &targets {
+                if let Target::Decl(d) = t
+                    && ws.decls[*d].kind == DeclKind::Struct
+                {
+                    let g = type_generics(ws, *d);
+                    let dm = ws.decls[*d].module;
+                    let held: BTreeSet<String> = ws
+                        .fields(*d)
+                        .into_iter()
+                        .filter(|fl| ws.type_targets(dm, fl.ty, &g).iter().any(pred))
+                        .map(|fl| fl.name.clone())
+                        .collect();
+                    if !held.is_empty() {
+                        out.held.entry(name.clone()).or_default().extend(held);
+                    }
+                }
+            }
+        }
+        if let Some(d) = f.self_decl {
+            let mut g: Vec<&syn::Generics> = type_generics(ws, d);
+            g.extend(f.outer_generics);
+            let dm = ws.decls[d].module;
+            for field in ws.fields(d) {
+                if field.variant.is_none() && ws.type_targets(dm, field.ty, &g).iter().any(pred) {
+                    out.fields.insert(field.name.clone());
+                }
+            }
+        }
+        struct Locals<'w, 'g> {
+            ws: &'w Workspace,
+            m: usize,
+            generics: &'g [&'g syn::Generics],
+            pred: &'g dyn Fn(&Target) -> bool,
+            names: Vec<String>,
+        }
+        impl<'ast> Visit<'ast> for Locals<'_, '_> {
+            fn visit_local(&mut self, l: &'ast syn::Local) {
+                if let syn::Pat::Type(t) = &l.pat
+                    && let Some(name) = pat_ident(&t.pat)
+                    && self
+                        .ws
+                        .type_targets(self.m, &t.ty, self.generics)
+                        .iter()
+                        .any(self.pred)
+                {
+                    self.names.push(name);
+                }
+                syn::visit::visit_local(self, l);
+            }
+        }
+        let mut locals = Locals {
+            ws,
+            m,
+            generics: &generics,
+            pred,
+            names: vec![],
+        };
+        locals.visit_block(f.block);
+        out.names.extend(locals.names);
+        out
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty() && self.fields.is_empty() && self.held.is_empty()
+    }
+
+    /// The receiver an expression names when it is one of these: `name`, `self.field` or `holder.field`, through
+    /// references, parentheses, `.await` and argument-less calls such as `.as_ref()`.
+    pub fn named_by(&self, e: &syn::Expr) -> Option<String> {
+        match e {
+            syn::Expr::Path(p) if p.path.segments.len() == 1 && p.qself.is_none() => {
+                let n = p.path.segments[0].ident.to_string();
+                self.names.contains(&n).then_some(n)
+            }
+            syn::Expr::Field(f) => match (&*f.base, &f.member) {
+                (syn::Expr::Path(b), syn::Member::Named(n))
+                    if b.path.is_ident("self") && self.fields.contains(&n.to_string()) =>
+                {
+                    Some(format!("self.{n}"))
+                }
+                (syn::Expr::Path(b), syn::Member::Named(n)) => {
+                    let holder = b.path.get_ident()?.to_string();
+                    let n = n.to_string();
+                    self.held
+                        .get(&holder)
+                        .is_some_and(|fields| fields.contains(&n))
+                        .then(|| format!("{holder}.{n}"))
+                }
+                _ => None,
+            },
+            syn::Expr::Reference(r) => self.named_by(&r.expr),
+            syn::Expr::Paren(p) => self.named_by(&p.expr),
+            syn::Expr::Await(a) => self.named_by(&a.base),
+            syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => self.named_by(&u.expr),
+            syn::Expr::MethodCall(mc)
+                if mc.args.is_empty()
+                    && matches!(
+                        mc.method.to_string().as_str(),
+                        "as_ref" | "as_deref" | "borrow" | "clone" | "deref"
+                    ) =>
+            {
+                self.named_by(&mc.receiver)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The name a parameter pattern binds: a plain identifier, or the one identifier inside a
+/// one-field tuple-struct pattern (`State(ports)`).
+pub(crate) fn binding(p: &syn::Pat) -> Option<String> {
+    match p {
+        syn::Pat::TupleStruct(ts) if ts.elems.len() == 1 => pat_ident(&ts.elems[0]),
+        syn::Pat::Type(t) => binding(&t.pat),
+        _ => pat_ident(p),
+    }
+}
+
+/// The name a pattern binds when it is a plain identifier (`x`, `mut x`, `ref x`).
+pub(crate) fn pat_ident(p: &syn::Pat) -> Option<String> {
+    match p {
+        syn::Pat::Ident(i) if i.subpat.is_none() => Some(i.ident.to_string()),
+        syn::Pat::Type(t) => pat_ident(&t.pat),
+        _ => None,
+    }
+}
+
+/// Modules of the application crates and of the incoming side of the adapters crates.
+pub(crate) fn application_and_incoming(ws: &Workspace) -> Vec<usize> {
+    ws.project_modules()
+        .filter(|m| {
+            ws.module_layer(*m) == Some(Layer::Application) || ws.module_in_side(*m, "incoming")
+        })
+        .collect()
 }

@@ -7,9 +7,67 @@ edition = "2024"
 context = "alpha"
 layer = "domain"
 
+# DCA-MAP-004/005/008/009: an anti-corruption layer and a conformist on the same channel, an unknown
+# context, the context itself, an empty via.
+[[package.metadata.dca.upstreams]]
+context = "beta"
+via = ["events"]
+translation = "acl"
+
+[[package.metadata.dca.upstreams]]
+context = "beta"
+via = ["events"]
+translation = "conformist"
+
+[[package.metadata.dca.upstreams]]
+context = "gamma"
+via = ["api"]
+translation = "acl"
+
+[[package.metadata.dca.upstreams]]
+context = "alpha"
+via = ["api"]
+translation = "sideways"
+
+[[package.metadata.dca.upstreams]]
+context = "beta"
+via = []
+translation = "acl"
+status = "planned"
+
+# DCA-MAP-002/010: a context named as an external system, a blank name, a duplicate.
+[[package.metadata.dca.external-upstreams]]
+name = "Vendor"
+interaction = "outbound"
+translation = "acl"
+contract-crates = ["vendor-sdk"]
+
+[[package.metadata.dca.external-upstreams]]
+name = "Vendor"
+interaction = "outbound"
+translation = "acl"
+
+[[package.metadata.dca.external-upstreams]]
+name = "beta"
+interaction = "outbound"
+translation = "conformist"
+
+[[package.metadata.dca.external-upstreams]]
+name = " "
+interaction = "sideways"
+translation = "acl"
+
+# DCA-MAP-012: one partner that does not declare it back, and the context itself.
+[[package.metadata.dca.partnerships]]
+context = "beta"
+
+[[package.metadata.dca.partnerships]]
+context = "alpha"
+
 [dependencies]
 dca-building-blocks = { path = "../../../../dca-building-blocks" }
 alpha-application = { path = "../alpha-application" }
 alpha-infrastructure = { path = "../alpha-infrastructure" }
 alpha-adapters = { path = "../alpha-adapters" }
 beta-domain = { path = "../beta-domain" }
+beta-api = { path = "../beta-api" }

@@ -5,8 +5,11 @@ use dca_building_blocks::application::UseCaseFailure;
 use dca_building_blocks::ddd::tactical::{DomainEvent, DomainFailure, DomainService, EventId, Factory, IntegrationEvent, Timestamp};
 use dca_building_blocks::hexagonal::port_out::{OutputPort, Repository, Store};
 
+/// DCA-CYC-002: the shared module and a use case name each other.
 pub mod shared {
-    pub trait Helper {}
+    pub trait Helper {
+        fn query(&self) -> crate::lookup::LookupQuery;
+    }
 }
 
 pub trait InputPort {}
@@ -123,6 +126,18 @@ pub mod other {
 
     pub struct SetLimitUseCase;
     impl InputPort for SetLimitUseCase {}
+
+    /// DCA-USE-021: a use case that counts its calls in itself.
+    pub struct CountingUseCase {
+        calls: std::cell::Cell<u32>,
+    }
+    impl InputPort for CountingUseCase {}
+
+    /// DCA-USE-022: a use case that answers with a bare number.
+    pub trait CountInputPort:
+        dca_building_blocks::hexagonal::port_in::UseCase<RunCommand, Output = Result<u32, String>>
+    {
+    }
 }
 
 pub mod lookup {
@@ -131,6 +146,10 @@ pub mod lookup {
     use crate::WrongRepository;
 
     pub struct LookupQuery;
+
+    pub fn helped(helper: &dyn crate::shared::Helper) -> LookupQuery {
+        helper.query()
+    }
 
     pub struct LookupUseCase<R: WrongRepository> {
         things: R,
@@ -177,6 +196,62 @@ pub mod remove_thing {
         pub fn remove(&self, id: u128, found: Option<Thing>) -> Result<(), ThingRefused> {
             let _thing = found.ok_or_else(|| ThingRefused::Unknown(id))?;
             Err(ThingRefused::Gone)
+        }
+    }
+}
+
+/// DCA-USE-018: two features, each with a command port.
+pub mod tidy {
+    pub mod sweep {
+        pub struct SweepCommand;
+        pub trait SweepInputPort: dca_building_blocks::hexagonal::port_in::InputPort {
+            fn sweep(&self, command: SweepCommand);
+        }
+    }
+}
+
+pub mod mend {
+    pub mod patch {
+        pub struct PatchCommand;
+        pub trait PatchInputPort: dca_building_blocks::hexagonal::port_in::InputPort {
+            fn patch(&self, command: PatchCommand);
+        }
+    }
+}
+
+/// DCA-ERR-010: a port's failure answered without naming it.
+pub mod keep_thing {
+    use alpha_domain::Thing;
+
+    use crate::WrongRepository;
+
+    pub struct KeepThingUseCase<R: WrongRepository> {
+        things: R,
+    }
+
+    impl<R: WrongRepository> KeepThingUseCase<R> {
+        pub fn keep(&self, thing: &Thing) -> bool {
+            let _ = self.things.save(thing);
+            match self.things.save(thing) {
+                Ok(()) => true,
+                Err(_) => false,
+            }
+        }
+
+        pub fn try_keep(&self, thing: &Thing) -> bool {
+            self.things.save(thing).is_ok()
+        }
+
+        pub fn keep_anyway(&self, thing: &Thing) {
+            let _ = std::panic::catch_unwind(|| self.things.save(thing));
+        }
+
+        pub fn keep_named(&self, thing: &Thing) -> Result<(), String> {
+            self.things.save(thing).map_err(|e| e.to_string())?;
+            match self.things.save(thing) {
+                Ok(()) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
         }
     }
 }

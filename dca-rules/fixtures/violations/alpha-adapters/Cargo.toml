@@ -15,3 +15,6 @@ alpha-infrastructure = { path = "../alpha-infrastructure" }
 beta-infrastructure = { path = "../beta-infrastructure" }
 beta-domain = { path = "../beta-domain" }
 beta-api = { path = "../beta-api" }
+vendor-sdk = { path = "../vendor-sdk" }
+axum = "0.8"
+actix-web = "4"

@@ -1,10 +1,16 @@
 # Never built: the rule suite reads it and expects every rule to fire.
 [workspace]
 resolver = "3"
-members = ["alpha-domain", "alpha-application", "alpha-adapters", "alpha-infrastructure", "beta-domain", "beta-api", "beta-infrastructure", "kernel"]
+members = ["alpha-domain", "alpha-application", "alpha-adapters", "alpha-infrastructure", "beta-domain", "beta-api", "beta-infrastructure", "kernel", "vendor-sdk", "beta-module"]
 
 [workspace.metadata.dca]
 experimental = "all"
 # DCA-HEX-020: the project's declarative forms of a claims-only check.
 authorization-extractors = ["RequireRole"]
 authorization-layers = ["require_role"]
+# DCA-LAY-004: the contract crate stands for a database crate here.
+transaction-types = ["vendor-sdk::Client"]
+# DCA-LAY-008: and for a persistence crate.
+persistence-crates = ["vendor-sdk"]
+# DCA-HEX-014/018: the router presets whose registrations the suite reads.
+routers = ["axum", "actix-web"]

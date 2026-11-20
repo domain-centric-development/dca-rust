@@ -7,5 +7,11 @@ edition = "2024"
 context = "alpha"
 layer = "domain"
 
+# alpha consumes beta's events and translates them in its incoming adapters.
+[[package.metadata.dca.upstreams]]
+context = "beta"
+via = ["events"]
+translation = "acl"
+
 [dependencies]
 dca-building-blocks = { path = "../../../../dca-building-blocks" }

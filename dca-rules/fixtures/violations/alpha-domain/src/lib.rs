@@ -9,6 +9,24 @@ pub mod utils {
     pub struct Bucket;
 }
 
+/// DCA-LAY-004: the domain runs its own transaction.
+pub fn atomically(boundary: &dyn dca_building_blocks::application::TransactionBoundary) {
+    let _ = boundary;
+}
+
+/// DCA-CYC-001: two domain modules that name each other.
+pub mod left {
+    pub struct Left(pub crate::right::Right);
+}
+
+pub mod right {
+    pub struct Right;
+
+    pub fn unwrap(left: crate::left::Left) -> Right {
+        left.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ThingId(u128);
 impl Value for ThingId {}
@@ -203,6 +221,22 @@ impl std::fmt::Display for ThingRefused {
 }
 impl std::error::Error for ThingRefused {}
 impl DomainFailure for ThingRefused {}
+
+/// DCA-HEX-016: an enum an adapter should map, not print.
+#[derive(Debug, Clone, Copy)]
+pub enum Phase {
+    Open,
+    Closed,
+}
+
+/// DCA-ERR-007: a failure that carries prose and the aggregate itself.
+#[derive(Debug)]
+pub struct LabelRefused {
+    reason: String,
+    thing: Thing,
+}
+impl std::error::Error for LabelRefused {}
+impl DomainFailure for LabelRefused {}
 
 /// DCA-TAC-025: a yes/no fact kept in a private `bool` field passes; a `bool` parameter and a `pub`
 /// `bool` field are flag arguments. The reconstituting factory `restore` takes its `bool` - its bare

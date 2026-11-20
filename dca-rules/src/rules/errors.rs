@@ -384,3 +384,266 @@ pub fn err_009(ws: &Workspace) -> Vec<Violation> {
     }
     out
 }
+
+/// The expression under parentheses and `.await`.
+fn bare(e: &syn::Expr) -> &syn::Expr {
+    match e {
+        syn::Expr::Paren(p) => bare(&p.expr),
+        syn::Expr::Await(a) => bare(&a.base),
+        _ => e,
+    }
+}
+
+/// Whether a pattern matches anything without naming it: `_`, `..`, or a binding that covers
+/// every value (`other`) - the latter only where `binding_counts`.
+fn catches_all(p: &syn::Pat, binding_counts: bool) -> bool {
+    match p {
+        syn::Pat::Wild(_) | syn::Pat::Rest(_) => true,
+        syn::Pat::Ident(i) => binding_counts && i.subpat.is_none(),
+        syn::Pat::Paren(p) => catches_all(&p.pat, binding_counts),
+        syn::Pat::Type(t) => catches_all(&t.pat, binding_counts),
+        _ => false,
+    }
+}
+
+/// The variant a tuple-struct pattern names (`Ok`, `Err`) with its one inner pattern.
+fn variant_pat(p: &syn::Pat) -> Option<(String, Option<&syn::Pat>)> {
+    match p {
+        syn::Pat::TupleStruct(ts) => {
+            Some((ts.path.segments.last()?.ident.to_string(), ts.elems.first()))
+        }
+        syn::Pat::Paren(p) => variant_pat(&p.pat),
+        _ => None,
+    }
+}
+
+/// The cases of a pattern, or-patterns split.
+fn cases(p: &syn::Pat) -> Vec<&syn::Pat> {
+    match p {
+        syn::Pat::Or(o) => o.cases.iter().flat_map(cases).collect(),
+        _ => vec![p],
+    }
+}
+
+/// How a pattern over a port call's `Result` answers the failure without naming it, if it does:
+/// `Err(_)`, or `_` / a bare binding that the failure reaches.
+fn unnamed_err_arm(p: &syn::Pat, err_named_before: bool) -> Option<String> {
+    for case in cases(p) {
+        if let Some((v, inner)) = variant_pat(case)
+            && v == "Err"
+            && inner.is_none_or(|i| catches_all(i, false))
+        {
+            return Some("an `Err(_)` arm".into());
+        }
+        if !err_named_before && catches_all(case, true) {
+            return Some("a catch-all arm".into());
+        }
+    }
+    None
+}
+
+/// Whether an arm's pattern takes the failure in hand: `Err(e)`.
+fn names_err(p: &syn::Pat) -> bool {
+    cases(p).into_iter().any(|c| {
+        matches!(variant_pat(c), Some((v, Some(syn::Pat::Ident(i)))) if v == "Err" && i.subpat.is_none())
+    })
+}
+
+/// Whether a closure's first parameter discards what it gets (`|_| ...`).
+fn discards_arg(e: &syn::Expr) -> bool {
+    match bare(e) {
+        syn::Expr::Closure(c) => c.inputs.first().is_none_or(|p| catches_all(p, false)),
+        _ => false,
+    }
+}
+
+struct PortAnswers<'a> {
+    receivers: &'a super::Receivers,
+    found: Vec<(usize, String, String)>,
+    in_catch_unwind: usize,
+}
+
+impl PortAnswers<'_> {
+    /// `receiver.method` when an expression is a call of a method on a port.
+    fn port_call(&self, e: &syn::Expr) -> Option<String> {
+        match bare(e) {
+            syn::Expr::MethodCall(mc) => self
+                .receivers
+                .named_by(&mc.receiver)
+                .map(|r| format!("{r}.{}", mc.method)),
+            _ => None,
+        }
+    }
+
+    fn note(&mut self, line: usize, call: String, how: impl Into<String>) {
+        self.found.push((line, call, how.into()));
+    }
+}
+
+impl<'ast> syn::visit::Visit<'ast> for PortAnswers<'_> {
+    fn visit_expr_method_call(&mut self, mc: &'ast syn::ExprMethodCall) {
+        if let Some(call) = self.port_call(&mc.receiver) {
+            let method = mc.method.to_string();
+            let first = mc.args.first();
+            let unnamed = match method.as_str() {
+                "ok" | "unwrap_or" | "unwrap_or_default" | "or" | "is_ok" | "is_err" | "map_or" => {
+                    true
+                }
+                "unwrap_or_else" | "map_err" | "or_else" | "map_or_else" => {
+                    first.is_some_and(discards_arg)
+                }
+                _ => false,
+            };
+            if unnamed {
+                self.note(
+                    mc.method.span().start().line,
+                    call,
+                    format!("`.{method}(..)`"),
+                );
+            }
+        } else if self.in_catch_unwind > 0
+            && let Some(r) = self.receivers.named_by(&mc.receiver)
+        {
+            self.note(
+                mc.method.span().start().line,
+                format!("{r}.{}", mc.method),
+                "`catch_unwind`",
+            );
+        }
+        syn::visit::visit_expr_method_call(self, mc);
+    }
+
+    fn visit_expr_match(&mut self, e: &'ast syn::ExprMatch) {
+        if let Some(call) = self.port_call(&e.expr) {
+            let mut err_named = false;
+            for arm in &e.arms {
+                if let Some(how) = unnamed_err_arm(&arm.pat, err_named) {
+                    self.note(arm.pat.span().start().line, call.clone(), how);
+                }
+                err_named |= names_err(&arm.pat) && arm.guard.is_none();
+            }
+        }
+        syn::visit::visit_expr_match(self, e);
+    }
+
+    fn visit_expr_let(&mut self, e: &'ast syn::ExprLet) {
+        if let Some(call) = self.port_call(&e.expr) {
+            let how = match variant_pat(&e.pat) {
+                Some((v, _)) if v == "Ok" => Some("`if let Ok(..)`, which drops the failure"),
+                _ if unnamed_err_arm(&e.pat, false).is_some() => Some("`if let Err(_)`"),
+                _ => None,
+            };
+            if let Some(how) = how {
+                self.note(e.pat.span().start().line, call, how);
+            }
+        }
+        syn::visit::visit_expr_let(self, e);
+    }
+
+    fn visit_local(&mut self, l: &'ast syn::Local) {
+        if let Some(init) = &l.init
+            && let Some(call) = self.port_call(&init.expr)
+        {
+            let how = if catches_all(&l.pat, false) {
+                Some("`let _ =`, which drops the failure")
+            } else if init.diverge.is_some()
+                && matches!(variant_pat(&l.pat), Some((v, _)) if v == "Ok")
+            {
+                Some("`let Ok(..) = .. else`")
+            } else {
+                None
+            };
+            if let Some(how) = how {
+                self.note(l.pat.span().start().line, call, how);
+            }
+        }
+        syn::visit::visit_local(self, l);
+    }
+
+    fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
+        let unwinds = matches!(&*c.func, syn::Expr::Path(p)
+            if p.path.segments.last().is_some_and(|s| s.ident == "catch_unwind"));
+        if unwinds {
+            self.in_catch_unwind += 1;
+        }
+        syn::visit::visit_expr_call(self, c);
+        if unwinds {
+            self.in_catch_unwind -= 1;
+        }
+    }
+}
+
+/// DCA-ERR-010 (experimental). In the application and the incoming adapters, the failure of a call
+/// on a port - a parameter, a written-out local or a field of `self` whose type carries the
+/// input-port or output-port role - is propagated or matched by name, never answered without
+/// naming it.
+pub fn err_010(ws: &Workspace) -> Vec<Violation> {
+    let is_port =
+        |t: &Target| target_has_role(ws, t, "InputPort") || target_has_role(ws, t, "OutputPort");
+    let mut out = vec![];
+    for m in super::application_and_incoming(ws) {
+        for f in super::functions(ws, m) {
+            let receivers = super::Receivers::of(ws, m, &f, &is_port);
+            if receivers.is_empty() {
+                continue;
+            }
+            let mut v = PortAnswers {
+                receivers: &receivers,
+                found: vec![],
+                in_catch_unwind: 0,
+            };
+            syn::visit::Visit::visit_block(&mut v, f.block);
+            for (line, call, how) in v.found {
+                out.push(at_line(
+                    ws,
+                    "DCA-ERR-010",
+                    m,
+                    &f.name(),
+                    line,
+                    format!(
+                        "`{}` answers the failure of the port call `{call}` with {how} - every \
+                         failure alike; propagate it with `?` or match the named failure",
+                        f.name()
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// DCA-ERR-007 (informational): a failure carries values, not prose and not the model's objects -
+/// lists every field of a failure whose type is `String` or names an aggregate or an entity.
+pub fn err_007(ws: &Workspace) -> Vec<Violation> {
+    let mut out = vec![];
+    let failures: BTreeSet<usize> = ws
+        .types_with_role("DomainFailure")
+        .chain(ws.types_with_role("PortFailure"))
+        .filter(|d| !ws.is_building_block_decl(*d))
+        .collect();
+    for d in failures {
+        for (f, targets) in super::field_targets(ws, d) {
+            let text = super::type_idents(f.ty).iter().any(|i| i == "String");
+            let model = targets.iter().find(|t| {
+                target_has_role(ws, t, "AggregateRoot") || target_has_role(ws, t, "Entity")
+            });
+            let what = match (text, model) {
+                (_, Some(t)) => format!("the model object `{}`", ws.target_name(t)),
+                (true, None) => "a `String`".to_string(),
+                (false, None) => continue,
+            };
+            out.push(at(
+                ws,
+                "DCA-ERR-007",
+                d,
+                format!(
+                    "failure `{}` carries {what} in `{}` - check: does it carry the values the \
+                     caller needs to answer, by name?",
+                    ws.decl_name(d),
+                    super::field_label(&f)
+                ),
+            ));
+        }
+    }
+    out
+}
