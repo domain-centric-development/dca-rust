@@ -10,7 +10,7 @@ use crate::model::{Layer, Workspace};
 /// DCA-LAY-004: TransactionBoundary is named in the application, the outgoing adapters and the
 /// composition root only; a configured transaction type in the application and the outgoing
 /// adapters only.
-pub fn lay_004(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn lay_004(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for m in ws.project_modules() {
         let Some(layer) = ws.module_layer(m) else {
@@ -62,7 +62,7 @@ const LAYER_MODULES: &[&str] = &[
 
 /// DCA-LAY-007 (informational): in a crate that carries a context but no layer, every top-level
 /// module that is none of the layer modules.
-pub fn lay_007(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn lay_007(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for c in ws
         .crates
@@ -91,7 +91,7 @@ pub fn lay_007(ws: &Workspace) -> Vec<Violation> {
 }
 
 /// DCA-LAY-008: an application crate depends on no configured persistence or transaction crate.
-pub fn lay_008(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn lay_008(ws: &Workspace) -> Vec<Violation> {
     let configured: BTreeSet<String> = ws
         .config
         .persistence_crates
@@ -120,27 +120,61 @@ pub fn lay_008(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-/// DCA-ONI-004: the domain is synchronous - no async function or block, no `.await`, no path into a
-/// configured async runtime crate, no function that returns a `Future`.
-pub fn oni_004(ws: &Workspace) -> Vec<Violation> {
+/// DCA-ONI-004: the domain is synchronous outside its gateways and domain services - no async
+/// function or block, no `.await`, no function that returns a `Future` elsewhere - and names no
+/// configured async runtime crate anywhere.
+pub(super) fn oni_004(ws: &Workspace) -> Vec<Violation> {
     #[derive(Default)]
     struct Async(Vec<(usize, String)>);
+    /// Whether a type or a set of bounds names a future: `Future`, `BoxFuture`, `ScopedBoxFuture`.
+    fn names_future(idents: &[String]) -> bool {
+        idents
+            .iter()
+            .any(|i| matches!(i.as_str(), "Future" | "BoxFuture" | "ScopedBoxFuture"))
+    }
+    fn paths_in(f: impl FnOnce(&mut crate::model::PathCollector)) -> Vec<String> {
+        let mut c = crate::model::PathCollector::default();
+        f(&mut c);
+        c.paths
+            .iter()
+            .filter_map(|p| p.segments.last().map(|s| s.ident.to_string()))
+            .collect()
+    }
     impl<'ast> syn::visit::Visit<'ast> for Async {
         fn visit_signature(&mut self, s: &'ast syn::Signature) {
+            let line = s.ident.span().start().line;
             let future = matches!(&s.output, syn::ReturnType::Type(_, ty)
-                if super::type_idents(ty).iter().any(|i| i == "Future"));
+                if names_future(&super::type_idents(ty)));
             if s.asyncness.is_some() {
-                self.0.push((
-                    s.ident.span().start().line,
-                    format!("`{}` is async", s.ident),
-                ));
+                self.0.push((line, format!("`{}` is async", s.ident)));
             } else if future {
-                self.0.push((
-                    s.ident.span().start().line,
-                    format!("`{}` returns a Future", s.ident),
-                ));
+                self.0
+                    .push((line, format!("`{}` returns a Future", s.ident)));
+            }
+            let takes = s.inputs.iter().any(|a| match a {
+                syn::FnArg::Typed(pt) => names_future(&super::type_idents(&pt.ty)),
+                syn::FnArg::Receiver(_) => false,
+            }) || names_future(&paths_in(|c| {
+                syn::visit::Visit::visit_generics(c, &s.generics)
+            }));
+            if takes {
+                self.0.push((line, format!("`{}` takes a Future", s.ident)));
             }
             syn::visit::visit_signature(self, s);
+        }
+        fn visit_field(&mut self, f: &'ast syn::Field) {
+            if names_future(&super::type_idents(&f.ty)) {
+                let name = f
+                    .ident
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "a tuple field".to_string());
+                self.0.push((
+                    syn::spanned::Spanned::span(&f.ty).start().line,
+                    format!("the field `{name}` holds a Future"),
+                ));
+            }
+            syn::visit::visit_field(self, f);
         }
         fn visit_expr_await(&mut self, e: &'ast syn::ExprAwait) {
             self.0
@@ -167,7 +201,11 @@ pub fn oni_004(ws: &Workspace) -> Vec<Violation> {
         .filter(|m| ws.module_layer(*m) == Some(Layer::Domain))
     {
         let mut v = Async::default();
-        for item in &ws.modules[m].items {
+        for (idx, item) in ws.modules[m].items.iter().enumerate() {
+            if super::may_be_async(ws, m, idx) {
+                continue;
+            }
+
             syn::visit::Visit::visit_item(&mut v, item);
         }
         let mut seen = BTreeSet::new();
@@ -189,9 +227,16 @@ pub fn oni_004(ws: &Workspace) -> Vec<Violation> {
                 m,
                 "",
                 line,
-                format!("{what} - the domain is synchronous; async belongs to ports and adapters"),
+                format!("{what} - the domain is synchronous outside its gateways and domain services; async belongs to those, the ports and the adapters"),
             ));
         }
     }
     out
+}
+
+/// DCA-LAY-001 (informational): doctrine only - the layered architecture is followed. Nothing is
+/// selected: the dependency direction is held by the crate graph and the hexagonal rules, and a
+/// classic layered check would refuse the outgoing adapters that implement application ports.
+pub(super) fn lay_001(_ws: &Workspace) -> Vec<Violation> {
+    vec![]
 }

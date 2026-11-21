@@ -1,0 +1,13 @@
+[package]
+name = "kernel-application"
+description = "The shared kernel's output ports - the clock, the source of fresh identities, the inbox - and the vocabulary of event delivery."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+shared-kernel = true
+layer = "application"
+
+[dependencies]
+dca-building-blocks.workspace = true

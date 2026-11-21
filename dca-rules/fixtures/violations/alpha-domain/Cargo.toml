@@ -40,7 +40,7 @@ status = "planned"
 name = "Vendor"
 interaction = "outbound"
 translation = "acl"
-contract-crates = ["vendor-sdk"]
+contract-crates = ["vendor-sdk", "vendor-feed"]
 
 [[package.metadata.dca.external-upstreams]]
 name = "Vendor"
@@ -71,3 +71,4 @@ alpha-infrastructure = { path = "../alpha-infrastructure" }
 alpha-adapters = { path = "../alpha-adapters" }
 beta-domain = { path = "../beta-domain" }
 beta-api = { path = "../beta-api" }
+tokio = "1"

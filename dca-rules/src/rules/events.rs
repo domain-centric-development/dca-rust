@@ -7,7 +7,7 @@ use super::{at, at_line, field_label, immutability, in_layer, target_has_role, t
 use crate::Violation;
 use crate::model::{Layer, Target, Workspace};
 
-pub fn adv_001(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_001(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("DomainEvent")
         .flat_map(|d| immutability(ws, "DCA-ADV-001", d, "domain event", false))
         .collect()
@@ -32,7 +32,7 @@ fn outside_domain(
         .collect()
 }
 
-pub fn adv_002(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_002(ws: &Workspace) -> Vec<Violation> {
     outside_domain(ws, "DCA-ADV-002", "DomainEvent", "domain event")
 }
 
@@ -46,20 +46,20 @@ fn version_fields(ws: &Workspace, rule: &'static str, d: usize, what: &str) -> V
         .collect()
 }
 
-pub fn adv_006(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_006(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("IntegrationEvent")
         .flat_map(|d| version_fields(ws, "DCA-ADV-006", d, "integration event"))
         .collect()
 }
 
-pub fn adv_007(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_007(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("DomainEvent")
         .filter(|d| !ws.has_role(*d, "IntegrationEvent"))
         .flat_map(|d| version_fields(ws, "DCA-ADV-007", d, "domain event"))
         .collect()
 }
 
-pub fn adv_008(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_008(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in ws.types_with_role("DomainEvent") {
         let fields = ws.fields(d);
@@ -107,47 +107,56 @@ pub fn adv_008(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn adv_010(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_010(ws: &Workspace) -> Vec<Violation> {
     outside_domain(ws, "DCA-ADV-010", "DomainService", "domain service")
 }
 
-pub fn adv_012(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_012(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("DomainService")
         .flat_map(|d| immutability(ws, "DCA-ADV-012", d, "domain service", false))
         .collect()
 }
 
-pub fn adv_013(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_013(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("Factory")
-        .filter(|d| !ws.decl_name(*d).ends_with("Factory"))
+        .filter(|d| !ws.decl_name(*d).ends_with(&ws.config.suffixes.factory))
         .map(|d| {
             at(
                 ws,
                 "DCA-ADV-013",
                 d,
-                format!("factory `{}` is not named *Factory", ws.decl_name(d)),
+                format!(
+                    "factory `{}` is not named *{}",
+                    ws.decl_name(d),
+                    ws.config.suffixes.factory
+                ),
             )
         })
         .collect()
 }
 
-pub fn adv_014(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_014(ws: &Workspace) -> Vec<Violation> {
     outside_domain(ws, "DCA-ADV-014", "Factory", "factory")
 }
 
-pub fn adv_016(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_016(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("Factory")
         .flat_map(|d| immutability(ws, "DCA-ADV-016", d, "factory", false))
         .collect()
 }
 
-fn specifications(ws: &Workspace) -> Vec<usize> {
+pub(crate) fn specifications(ws: &Workspace) -> Vec<usize> {
     ws.type_decls()
-        .filter(|d| ws.has_role(*d, "Specification") || ws.decl_name(*d).ends_with("Specification"))
+        .filter(|d| {
+            ws.has_role(*d, "Specification")
+                || ws
+                    .decl_name(*d)
+                    .ends_with(&ws.config.suffixes.specification)
+        })
         .collect()
 }
 
-pub fn adv_017(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_017(ws: &Workspace) -> Vec<Violation> {
     specifications(ws)
         .into_iter()
         .filter(|d| !in_layer(ws, *d, Layer::Domain))
@@ -165,7 +174,7 @@ pub fn adv_017(ws: &Workspace) -> Vec<Violation> {
         .collect()
 }
 
-pub fn adv_019(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_019(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in ws.type_decls().filter(|d| {
         ["AggregateRoot", "Entity", "Value"]
@@ -181,47 +190,48 @@ pub fn adv_019(ws: &Workspace) -> Vec<Violation> {
                 .iter()
                 .filter_map(|p| ws.resolve_path(m.module, p))
                 .any(|t| target_has_role(ws, &t, "DomainService"));
+            // A call on a service held in a parameter, a local, a field of self, or one built in
+            // place: ADV-021's reading.
             let generics = m.generics();
-            let service_params: Vec<String> = m
+            let is_service = |ty: &syn::Type, g: &[&syn::Generics]| {
+                ws.type_targets(m.module, ty, g)
+                    .iter()
+                    .any(|t| target_has_role(ws, t, "DomainService"))
+            };
+            let names: Vec<String> = m
                 .sig
                 .inputs
                 .iter()
                 .filter_map(|a| match a {
-                    syn::FnArg::Typed(pt) => {
-                        let ts = ws.type_targets(m.module, &pt.ty, &generics);
-                        if ts.iter().any(|t| target_has_role(ws, t, "DomainService"))
-                            && let syn::Pat::Ident(i) = &*pt.pat
-                        {
-                            return Some(i.ident.to_string());
-                        }
-                        None
+                    syn::FnArg::Typed(pt) if is_service(&pt.ty, &generics) => {
+                        super::pat_ident(&pt.pat)
                     }
                     _ => None,
                 })
                 .collect();
-            if !service_params.is_empty() {
-                struct Recv<'a> {
-                    names: &'a [String],
-                    hit: bool,
-                }
-                impl<'ast> syn::visit::Visit<'ast> for Recv<'_> {
-                    fn visit_expr_method_call(&mut self, mc: &'ast syn::ExprMethodCall) {
-                        if let syn::Expr::Path(p) = &*mc.receiver
-                            && p.path.segments.len() == 1
-                            && self.names.contains(&p.path.segments[0].ident.to_string())
-                        {
-                            self.hit = true;
-                        }
-                        syn::visit::visit_expr_method_call(self, mc);
-                    }
-                }
-                let mut r = Recv {
-                    names: &service_params,
-                    hit: false,
-                };
-                syn::visit::Visit::visit_block(&mut r, block);
-                hit |= r.hit;
-            }
+            let field_generics = super::type_and_impl_generics(ws, d);
+            let dm = ws.decls[d].module;
+            let fields: Vec<String> = ws
+                .fields(d)
+                .into_iter()
+                .filter(|f| {
+                    f.variant.is_none()
+                        && ws
+                            .type_targets(dm, f.ty, &field_generics)
+                            .iter()
+                            .any(|t| target_has_role(ws, t, "DomainService"))
+                })
+                .map(|f| f.name.clone())
+                .collect();
+            let mut uses = Uses {
+                ws,
+                m: m.module,
+                names,
+                fields: &fields,
+                found: vec![],
+            };
+            syn::visit::Visit::visit_block(&mut uses, block);
+            hit |= !uses.found.is_empty();
             if hit {
                 out.push(at(ws, "DCA-ADV-019", d, format!("`{}` uses a domain service in `{}`; the service takes the aggregate, not the reverse", ws.decl_name(d), m.name)));
             }
@@ -230,13 +240,12 @@ pub fn adv_019(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn adv_020(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_020(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in ws.types_with_role("DomainService") {
-        for m in ws
-            .methods(d)
+        for m in super::own_methods(ws, d, false)
             .into_iter()
-            .filter(|m| m.inherent && m.public && m.has_receiver())
+            .filter(|m| m.public && m.has_receiver())
         {
             let generics = m.generics();
             let takes = m.params().iter().any(|p| {
@@ -254,7 +263,7 @@ pub fn adv_020(ws: &Workspace) -> Vec<Violation> {
 
 // --- framework metadata ------------------------------------------------------------------------
 
-fn framework_attr(ws: &Workspace, m: usize, attrs: &[syn::Attribute]) -> Vec<String> {
+pub(crate) fn framework_attr(ws: &Workspace, m: usize, attrs: &[syn::Attribute]) -> Vec<String> {
     let mut out = vec![];
     let check = |p: &syn::Path, out: &mut Vec<String>| {
         let first = p
@@ -354,6 +363,47 @@ fn metadata(ws: &Workspace, rule: &'static str, select: impl Fn(usize) -> bool) 
                 ));
             }
         }
+        if let syn::Item::Enum(e) = ws.item(d) {
+            for v in &e.variants {
+                for hit in framework_attr(ws, m, &v.attrs) {
+                    out.push(at(
+                        ws,
+                        rule,
+                        d,
+                        format!("variant `{}` carries `{hit}` from a framework", v.ident),
+                    ));
+                }
+            }
+        }
+        // The impl blocks for the type, inherent and of traits, and their methods.
+        for imp in ws.impls.iter().filter(|i| i.self_decl == Some(d)) {
+            let syn::Item::Impl(block) = &ws.modules[imp.module].items[imp.item] else {
+                continue;
+            };
+            for hit in framework_attr(ws, imp.module, &block.attrs) {
+                out.push(at(
+                    ws,
+                    rule,
+                    d,
+                    format!(
+                        "an impl block of `{}` carries `{hit}` from a framework",
+                        ws.decl_name(d)
+                    ),
+                ));
+            }
+            for it in &block.items {
+                if let syn::ImplItem::Fn(f) = it {
+                    for hit in framework_attr(ws, imp.module, &f.attrs) {
+                        out.push(at(
+                            ws,
+                            rule,
+                            d,
+                            format!("method `{}` carries `{hit}` from a framework", f.sig.ident),
+                        ));
+                    }
+                }
+            }
+        }
     }
     out
 }
@@ -372,23 +422,23 @@ fn kind_of(ws: &Workspace, d: usize) -> &'static str {
     }
 }
 
-pub fn oni_003(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn oni_003(ws: &Workspace) -> Vec<Violation> {
     metadata(ws, "DCA-ONI-003", |d| kind_of(ws, d) == "model")
 }
 
-pub fn adv_004(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_004(ws: &Workspace) -> Vec<Violation> {
     metadata(ws, "DCA-ADV-004", |d| kind_of(ws, d) == "event")
 }
 
-pub fn adv_011(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_011(ws: &Workspace) -> Vec<Violation> {
     metadata(ws, "DCA-ADV-011", |d| kind_of(ws, d) == "service")
 }
 
-pub fn adv_015(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_015(ws: &Workspace) -> Vec<Violation> {
     metadata(ws, "DCA-ADV-015", |d| kind_of(ws, d) == "factory")
 }
 
-pub fn adv_018(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn adv_018(ws: &Workspace) -> Vec<Violation> {
     metadata(ws, "DCA-ADV-018", |d| kind_of(ws, d) == "specification")
 }
 
@@ -397,8 +447,9 @@ pub fn adv_018(ws: &Workspace) -> Vec<Violation> {
 /// read: a path to a domain-service type (a struct literal, a unit value, an associated function), a
 /// method call on a parameter, a local binding or a field of `self` that holds one, or on one built
 /// in place. The composition root (an infrastructure or bootstrap crate) may construct one - a
-/// struct literal, a unit value, an associated function without a receiver that returns `Self`.
-pub fn adv_021(ws: &Workspace) -> Vec<Violation> {
+/// struct literal, a unit value, an associated function without a receiver that returns `Self` or
+/// the type by its name.
+pub(super) fn adv_021(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for m in ws.project_modules() {
         let layer = ws.module_layer(m);
@@ -457,11 +508,15 @@ fn service_of(ws: &Workspace, m: usize, path: &syn::Path) -> Option<(usize, Opti
     }
 }
 
-/// Whether `function` of the service `d` builds one: no receiver, returns `Self`.
+/// Whether `function` of the service `d` builds one: no receiver, returns `Self` or the type by its
+/// name (`-> Sizing`, `-> Option<Sizing>`) - both spellings are the same constructor.
 fn constructs(ws: &Workspace, d: usize, function: &str) -> bool {
-    ws.methods(d)
-        .iter()
-        .any(|mm| mm.name == function && !mm.has_receiver() && mm.returns_self())
+    let name = ws.decl_name(d);
+    ws.methods(d).iter().any(|mm| {
+        mm.name == function
+            && !mm.has_receiver()
+            && (mm.returns_self() || super::tactical::returns_decl(mm, name))
+    })
 }
 
 struct Uses<'a> {

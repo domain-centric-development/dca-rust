@@ -3,8 +3,8 @@ pub mod incoming {
     pub mod page {
         use alpha_application::add_part::{AddPartCommand, AddPartInputPort, AddPartResult};
 
-        pub fn add(port: &dyn AddPartInputPort, label: String) -> u16 {
-            match port.execute(AddPartCommand { label }) {
+        pub async fn add(port: &dyn AddPartInputPort, label: String) -> u16 {
+            match port.execute(AddPartCommand { label }).await {
                 AddPartResult::Added(_) => 201,
                 AddPartResult::LimitReached(_) => 409,
             }
@@ -16,8 +16,8 @@ pub mod incoming {
         use alpha_application::check_part::CheckPartResult::{Accepted, AlreadyChecked};
         use alpha_application::check_part::{CheckPartCommand, CheckPartInputPort};
 
-        pub fn check(port: &dyn CheckPartInputPort, part: u64) -> u16 {
-            match port.check(CheckPartCommand { part }) {
+        pub async fn check(port: &dyn CheckPartInputPort, part: u64) -> u16 {
+            match port.check(CheckPartCommand { part }).await {
                 Accepted => 200,
                 AlreadyChecked => 200,
             }
@@ -28,8 +28,8 @@ pub mod incoming {
     pub mod rest {
         use alpha_application::remove_part::{RemovePartCommand, RemovePartInputPort};
 
-        pub fn remove(port: &dyn RemovePartInputPort, part: u64) -> u64 {
-            port.execute(RemovePartCommand { part }).part
+        pub async fn remove(port: &dyn RemovePartInputPort, part: u64) -> u64 {
+            port.execute(RemovePartCommand { part }).await.part
         }
     }
 
@@ -37,8 +37,8 @@ pub mod incoming {
     pub mod feed {
         use alpha_application::add_part::{AddPartCommand, AddPartInputPort, AddPartResult};
 
-        pub fn on(port: &dyn AddPartInputPort, label: String) {
-            let _ignored: AddPartResult = port.execute(AddPartCommand { label });
+        pub async fn on(port: &dyn AddPartInputPort, label: String) {
+            let _ignored: AddPartResult = port.execute(AddPartCommand { label }).await;
         }
     }
 }

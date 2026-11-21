@@ -6,6 +6,13 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 version.workspace = true
+rust-version = "1.88"
+readme = "../README.md"
+documentation = "https://docs.rs/dca-rules"
+keywords = ["ddd", "architecture", "hexagonal", "lint", "testing"]
+categories = ["development-tools", "development-tools::testing"]
+# The fixtures, the mapping script and the tests over the fixtures stay in the repository.
+include = ["src/**/*.rs", "rules.json", "Cargo.toml", "LICENSE"]
 publish.workspace = true
 
 [dependencies]
@@ -14,3 +21,6 @@ proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1.0.47"
 serde_json = "1.0.154"
 syn = { version = "2", features = ["full", "visit", "extra-traits"] }
+
+[lints]
+workspace = true

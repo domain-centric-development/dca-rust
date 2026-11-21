@@ -1,0 +1,29 @@
+# The compiled example: a small library with two bounded contexts and a shared kernel that uses every building
+# block, and the rule suite run over it. Its own workspace, so `dca_tests!()` reads only these crates.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+dca-building-blocks = { path = "../dca-building-blocks" }
+dca-rules = { path = "../dca-rules" }
+tokio = { version = "1.54.1", default-features = false }
+kernel-domain = { path = "crates/kernel-domain" }
+kernel-application = { path = "crates/kernel-application" }
+kernel-adapters = { path = "crates/kernel-adapters" }
+catalogue-domain = { path = "crates/catalogue-domain" }
+catalogue-application = { path = "crates/catalogue-application" }
+catalogue-adapters = { path = "crates/catalogue-adapters" }
+catalogue-events = { path = "crates/catalogue-events" }
+lending-domain = { path = "crates/lending-domain" }
+lending-application = { path = "crates/lending-application" }
+lending-adapters = { path = "crates/lending-adapters" }
+
+[workspace.metadata.dca]
+# Every experimental rule runs too.
+experimental = "all"

@@ -50,7 +50,7 @@ fn is_type(ws: &Workspace, t: &Target) -> bool {
     matches!(t, Target::Decl(d) if matches!(ws.decls[*d].kind, DeclKind::Struct | DeclKind::Enum))
 }
 
-pub fn hex_003(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_003(ws: &Workspace) -> Vec<Violation> {
     named(
         ws,
         "DCA-HEX-003",
@@ -62,7 +62,7 @@ pub fn hex_003(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
-pub fn hex_004(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_004(ws: &Workspace) -> Vec<Violation> {
     named(
         ws,
         "DCA-HEX-004",
@@ -81,7 +81,7 @@ pub fn hex_004(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
-pub fn hex_006(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_006(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for m in side_modules(ws, "incoming", true) {
         let krate = ws.modules[m].krate;
@@ -108,7 +108,7 @@ pub fn hex_006(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn hex_007(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_007(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for m in side_modules(ws, "incoming", true) {
         let ctx = ws.crates[ws.modules[m].krate].context.clone();
@@ -129,9 +129,12 @@ pub fn hex_007(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn hex_008(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_008(ws: &Workspace) -> Vec<Violation> {
     ws.type_decls()
-        .filter(|d| ws.decl_name(*d).ends_with("Repository") && !ws.decl_in_side(*d, "outgoing"))
+        .filter(|d| {
+            ws.decl_name(*d).ends_with(&ws.config.suffixes.repository)
+                && !ws.decl_in_side(*d, "outgoing")
+        })
         .map(|d| {
             at(
                 ws,
@@ -146,15 +149,11 @@ pub fn hex_008(ws: &Workspace) -> Vec<Violation> {
         .collect()
 }
 
-pub fn hex_009(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_009(ws: &Workspace) -> Vec<Violation> {
     ws.trait_decls()
         .filter(|d| {
             in_layer(ws, *d, Layer::Application)
-                && ws.modules[ws.decls[*d].module]
-                    .path
-                    .first()
-                    .map(String::as_str)
-                    == Some("shared")
+                && ws.in_shared(&ws.modules[ws.decls[*d].module].path)
         })
         .filter(|d| !ws.has_role(*d, "OutputPort"))
         .map(|d| {
@@ -163,15 +162,16 @@ pub fn hex_009(ws: &Workspace) -> Vec<Violation> {
                 "DCA-HEX-009",
                 d,
                 format!(
-                    "trait `{}` in application::shared does not extend OutputPort",
-                    ws.decl_name(d)
+                    "trait `{}` in application::{} does not extend OutputPort",
+                    ws.decl_name(d),
+                    ws.config.modules.shared
                 ),
             )
         })
         .collect()
 }
 
-pub fn hex_010(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_010(ws: &Workspace) -> Vec<Violation> {
     ws.traits_with_role("OutputPort")
         .filter(|d| in_layer(ws, *d, Layer::Domain))
         .map(|d| {
@@ -188,7 +188,7 @@ pub fn hex_010(ws: &Workspace) -> Vec<Violation> {
         .collect()
 }
 
-pub fn hex_011(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_011(ws: &Workspace) -> Vec<Violation> {
     named(
         ws,
         "DCA-HEX-011",
@@ -200,7 +200,7 @@ pub fn hex_011(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
-pub fn hex_012(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_012(ws: &Workspace) -> Vec<Violation> {
     named(
         ws,
         "DCA-HEX-012",
@@ -212,7 +212,7 @@ pub fn hex_012(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
-pub fn hex_013(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_013(ws: &Workspace) -> Vec<Violation> {
     named(
         ws,
         "DCA-HEX-013",
@@ -224,14 +224,48 @@ pub fn hex_013(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
-pub fn hex_019(ws: &Workspace) -> Vec<Violation> {
+/// Whether a type names an input port - the bridge in the composition root that implements an
+/// output port by driving another context's use case: a field whose type, through generic
+/// arguments and the bounds of the type and its impl blocks, names one, or such a bound itself.
+fn names_an_input_port(ws: &Workspace, d: usize) -> bool {
+    let is_port = |t: &Target| target_has_role(ws, t, "InputPort");
+    let m = ws.decls[d].module;
+    let generics = super::type_and_impl_generics(ws, d);
+    if ws
+        .fields(d)
+        .iter()
+        .any(|f| ws.type_targets(m, f.ty, &generics).iter().any(is_port))
+    {
+        return true;
+    }
+    let mut c = crate::model::PathCollector::default();
+    for g in &generics {
+        syn::visit::Visit::visit_generics(&mut c, g);
+    }
+    // A bound read in the module of the impl that writes it.
+    let modules: Vec<usize> = std::iter::once(m)
+        .chain(
+            ws.impls
+                .iter()
+                .filter(|i| i.self_decl == Some(d))
+                .map(|i| i.module),
+        )
+        .collect();
+    c.paths.iter().any(|p| {
+        modules
+            .iter()
+            .any(|mm| ws.resolve_path(*mm, p).is_some_and(|t| is_port(&t)))
+    })
+}
+
+pub(super) fn hex_019(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("OutputPort")
         .filter(|d| !ws.is_building_block_decl(*d) && !ws.decl_in_side(*d, "outgoing"))
         .filter(|d| {
-            !matches!(
+            !(matches!(
                 ws.layer_of_decl(*d),
                 Some(Layer::Infrastructure | Layer::Bootstrap)
-            )
+            ) && names_an_input_port(ws, *d))
         })
         .map(|d| {
             at(
@@ -321,7 +355,7 @@ impl<'ast> syn::visit::Visit<'ast> for LayeredHandlers<'_> {
 /// DCA-HEX-020 (experimental, informational). A check that reads nothing but the caller's roles is
 /// declared on the route - an extractor in the handler's signature or a layer on its route - not
 /// decided by a branch in the handler's own body.
-pub fn hex_020(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_020(ws: &Workspace) -> Vec<Violation> {
     let extractors = &ws.config.authorization_extractors;
     let layers = &ws.config.authorization_layers;
     if extractors.is_empty() && layers.is_empty() {
@@ -562,7 +596,7 @@ fn handlers(ws: &Workspace) -> Vec<Handler> {
 
 /// DCA-HEX-018 (experimental): a handler the router presets register sits in the incoming module
 /// of an adapters crate.
-pub fn hex_018(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_018(ws: &Workspace) -> Vec<Violation> {
     handlers(ws)
         .into_iter()
         .filter(|h| !ws.module_in_side(h.module, "incoming"))
@@ -575,35 +609,116 @@ pub fn hex_018(ws: &Workspace) -> Vec<Violation> {
         .collect()
 }
 
-/// DCA-HEX-014 (experimental): a handler registered for GET names no command - it reads, so it
-/// drives no command port.
-pub fn hex_014(ws: &Workspace) -> Vec<Violation> {
+/// DCA-HEX-014 (experimental): a handler registered for GET drives no command - it names no
+/// command type and calls no method on an input port that takes a command, in its own body or in a
+/// free function of the same module it calls (one level).
+pub(super) fn hex_014(ws: &Workspace) -> Vec<Violation> {
+    let takes_command = |t: &Target| match t {
+        Target::Decl(d) if ws.decls[*d].kind == DeclKind::Trait => {
+            ws.has_role(*d, "InputPort") && super::usecase::takes_command(ws, *d)
+        }
+        Target::Decl(d) => ws.implements[*d].iter().any(|i| {
+            matches!(i, Target::Decl(t) if ws.decls[*t].kind == DeclKind::Trait
+                && ws.has_role(*t, "InputPort")
+                && super::usecase::takes_command(ws, *t))
+        }),
+        _ => false,
+    };
+    let free_fn = |m: usize, name: &str| {
+        ws.modules[m].items.iter().find_map(|i| match i {
+            syn::Item::Fn(f) if f.sig.ident == name => Some(f),
+            _ => None,
+        })
+    };
     let mut out = vec![];
     for h in handlers(ws)
         .into_iter()
         .filter(|h| h.verbs.contains("get") && ws.module_in_side(h.module, "incoming"))
     {
-        let Some(item) = ws.modules[h.module]
-            .items
-            .iter()
-            .find(|i| matches!(i, syn::Item::Fn(f) if f.sig.ident == h.name))
-        else {
+        let m = h.module;
+        let Some(handler) = free_fn(m, &h.name) else {
             continue;
         };
-        let mut c = crate::model::PathCollector::default();
-        syn::visit::Visit::visit_item(&mut c, item);
-        let mut seen = std::collections::BTreeSet::new();
-        for p in &c.paths {
-            if let Some(Target::Decl(d)) = ws.resolve_path(h.module, p)
-                && ws.decl_name(d).ends_with("Command")
-                && in_layer(ws, d, Layer::Application)
-                && seen.insert(d)
+        // The handler, then the free functions of its module it calls.
+        let mut bodies: Vec<(&syn::ItemFn, Option<String>)> = vec![(handler, None)];
+        #[derive(Default)]
+        struct Called(Vec<syn::Path>);
+        impl<'ast> syn::visit::Visit<'ast> for Called {
+            fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
+                if let syn::Expr::Path(p) = &*c.func {
+                    self.0.push(p.path.clone());
+                }
+                syn::visit::visit_expr_call(self, c);
+            }
+        }
+        let mut called = Called::default();
+        syn::visit::Visit::visit_block(&mut called, &handler.block);
+        for p in &called.0 {
+            if let Some(Target::Decl(d)) = ws.resolve_path(m, p)
+                && ws.decls[d].kind == DeclKind::Fn
+                && ws.decls[d].module == m
+                && ws.decl_name(d) != h.name
+                && let Some(f) = free_fn(m, ws.decl_name(d))
+                && !bodies.iter().any(|(b, _)| b.sig.ident == f.sig.ident)
             {
-                out.push(at_line(ws, "DCA-HEX-014", h.module, &h.name, p.span().start().line, format!(
-                    "`{}` answers GET and builds the command `{}` - a GET reads; register the handler for POST, PUT, PATCH or DELETE",
-                    h.name,
-                    ws.decl_name(d)
-                )));
+                bodies.push((f, Some(ws.decl_name(d).to_string())));
+            }
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for (f, through) in bodies {
+            let via = through
+                .map(|t| format!(", through `{t}`,"))
+                .unwrap_or_default();
+            let mut c = crate::model::PathCollector::default();
+            syn::visit::Visit::visit_item_fn(&mut c, f);
+            for p in &c.paths {
+                if let Some(Target::Decl(d)) = ws.resolve_path(m, p)
+                    && ws.decl_name(d).ends_with("Command")
+                    && in_layer(ws, d, Layer::Application)
+                    && seen.insert(format!("{via}{d}"))
+                {
+                    out.push(at_line(ws, "DCA-HEX-014", m, &h.name, p.span().start().line, format!(
+                        "`{}` answers GET and{via} builds the command `{}` - a GET reads; register the handler for POST, PUT, PATCH or DELETE",
+                        h.name,
+                        ws.decl_name(d)
+                    )));
+                }
+            }
+            let function = super::Function {
+                sig: &f.sig,
+                block: &f.block,
+                self_decl: None,
+                outer_generics: None,
+            };
+            let receivers = super::Receivers::of(ws, m, &function, &takes_command);
+            if receivers.is_empty() {
+                continue;
+            }
+            struct Drives<'a> {
+                receivers: &'a super::Receivers,
+                found: Vec<(usize, String)>,
+            }
+            impl<'ast> syn::visit::Visit<'ast> for Drives<'_> {
+                fn visit_expr_method_call(&mut self, mc: &'ast syn::ExprMethodCall) {
+                    if let Some(r) = self.receivers.named_by(&mc.receiver) {
+                        self.found
+                            .push((mc.method.span().start().line, format!("{r}.{}", mc.method)));
+                    }
+                    syn::visit::visit_expr_method_call(self, mc);
+                }
+            }
+            let mut v = Drives {
+                receivers: &receivers,
+                found: vec![],
+            };
+            syn::visit::Visit::visit_block(&mut v, &f.block);
+            for (line, call) in v.found {
+                if seen.insert(format!("{via}{call}")) {
+                    out.push(at_line(ws, "DCA-HEX-014", m, &h.name, line, format!(
+                        "`{}` answers GET and{via} calls `{call}` on an input port that takes a command - a GET reads; register the handler for POST, PUT, PATCH or DELETE",
+                        h.name
+                    )));
+                }
             }
         }
     }
@@ -614,7 +729,7 @@ pub fn hex_014(ws: &Workspace) -> Vec<Violation> {
 
 /// DCA-HEX-021 (experimental): an outgoing adapter calls no `&mut self` method of an aggregate - it
 /// stores the aggregate's state, it does not change it. A method of a building-block trait passes.
-pub fn hex_021(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_021(ws: &Workspace) -> Vec<Violation> {
     struct Changes<'a> {
         receivers: &'a super::Receivers,
         mutating: &'a std::collections::BTreeSet<String>,
@@ -732,7 +847,7 @@ fn debug_arguments(fmt: &str) -> (Vec<usize>, Vec<String>) {
 /// DCA-HEX-016 (experimental, informational): an adapter writes the outside's representation, not
 /// the name of an inner enum's variant - lists `.to_string()` and `{:?}` applied to an enum declared
 /// in a domain or application crate.
-pub fn hex_016(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn hex_016(ws: &Workspace) -> Vec<Violation> {
     struct Formats<'w> {
         ws: &'w Workspace,
         m: usize,
@@ -861,4 +976,58 @@ fn is_inner_enum(ws: &Workspace, d: usize) -> bool {
             ws.layer_of_decl(d),
             Some(Layer::Domain | Layer::Application)
         )
+}
+
+/// DCA-HEX-017 (experimental): an event listener that reaches an input port - a field or a
+/// parameter of `on` whose type carries the role, or a path in `on` that names one - runs after the
+/// commit: it implements TransactionalEventListener.
+pub(super) fn hex_017(ws: &Workspace) -> Vec<Violation> {
+    let is_port = |t: &Target| target_has_role(ws, t, "InputPort");
+    let mut out = vec![];
+    for d in ws.types_with_role("EventListener").filter(|d| {
+        !ws.is_building_block_decl(*d) && !ws.has_role(*d, "TransactionalEventListener")
+    }) {
+        let dm = ws.decls[d].module;
+        let generics = super::type_and_impl_generics(ws, d);
+        let mut reaches: Vec<String> = ws
+            .fields(d)
+            .into_iter()
+            .filter(|f| ws.type_targets(dm, f.ty, &generics).iter().any(is_port))
+            .map(|f| format!("the field `{}`", super::field_label(&f)))
+            .collect();
+        for m in ws.project_modules() {
+            for f in super::functions(ws, m)
+                .into_iter()
+                .filter(|f| f.self_decl == Some(d) && f.sig.ident == "on")
+            {
+                let receivers = super::Receivers::of(ws, m, &f, &is_port);
+                reaches.extend(receivers.names.iter().map(|n| format!("`{n}` in `on`")));
+                reaches.extend(receivers.fields.iter().map(|n| format!("the field `{n}`")));
+                reaches.extend(receivers.held.iter().flat_map(|(holder, fields)| {
+                    fields
+                        .iter()
+                        .map(move |n| format!("`{holder}.{n}` in `on`"))
+                }));
+                let mut c = crate::model::PathCollector::default();
+                syn::visit::Visit::visit_block(&mut c, f.block);
+                for p in &c.paths {
+                    if let Some(t) = ws.resolve_path(m, p)
+                        && is_port(&t)
+                    {
+                        reaches.push(format!("`{}` in `on`", ws.target_name(&t)));
+                    }
+                }
+            }
+        }
+        reaches.sort();
+        reaches.dedup();
+        if !reaches.is_empty() {
+            out.push(at(ws, "DCA-HEX-017", d, format!(
+                "event listener `{}` drives an input port through {} but reacts inside the publishing transaction; implement TransactionalEventListener so it runs after the commit, in a transaction of its own",
+                ws.decl_name(d),
+                reaches.join(", ")
+            )));
+        }
+    }
+    out
 }

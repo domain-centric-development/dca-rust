@@ -1,0 +1,13 @@
+[package]
+name = "catalogue-events"
+description = "The catalogue context's integration events, the contract other contexts consume - a crate beside the api crate, so a consumer depends on the contract alone."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+context = "catalogue"
+layer = "events"
+
+[dependencies]
+dca-building-blocks.workspace = true

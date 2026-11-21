@@ -42,8 +42,13 @@ These hold for anyone working in any of the DCA repositories — human or agent 
   `dca-rules/src/rules/mod.rs` (which also names its test in `dca_tests!()`), a violation in
   `dca-rules/fixtures/violations` and nothing that fires in `dca-rules/fixtures/conforming` — the fixture tests
   fail otherwise. Rust-only rules take the next `DCA-RS-nnn` and start `experimental`.
+- **`example/`** is a workspace of its own (a library: `catalogue`, `lending`, a shared kernel): the compiled proof that
+  every building block is usable as documented, with the rule suite green on it. Build it like the root (test,
+  clippy, fmt; `cargo nextest run -p arch-tests --profile ci` for the rules); the `Dockerfile` runs it too.
 - **Fixtures** are never built, only read; they name contexts `alpha` and `beta` and types like `Thing` and
   `Part` — no vocabulary of a sample.
+- **Public API of the building blocks:** read `FUTURE-CHANGES.md` before changing a public signature — what waits for
+  the language (return type notation), what may be added, and what is fixed.
 - **The building blocks have no dependencies.** `Timestamp` and `EventId` are their own values for that reason.
 - **Macros:** the suite reads source, not expanded code. A trait impl it must see (a role) is written out.
 - **Consumers:** the todo app the suite was proven on (outside this repository) depends on both crates by path. A change to a rule

@@ -12,7 +12,11 @@
 
 #![forbid(unsafe_code)]
 
+// The model and the rules are public for the suite's own tests (the fixtures read a workspace and
+// run one rule); they are not part of the API a project uses and may change in any version.
+#[doc(hidden)]
 pub mod model;
+#[doc(hidden)]
 pub mod rules;
 
 use std::path::Path;
@@ -23,8 +27,11 @@ pub use model::{Layer, Target, Workspace};
 /// One finding of a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
+    /// The rule's id, `DCA-TAC-003`.
     pub rule: &'static str,
+    /// Where: the item's path and its file and line.
     pub location: String,
+    /// What is wrong, and what to do instead.
     pub message: String,
 }
 
@@ -37,9 +44,14 @@ impl std::fmt::Display for Violation {
 /// A rule's entry in `rules.json`.
 #[derive(Debug, Clone)]
 pub struct CatalogueEntry {
+    /// The rule's id, the same in every DCA suite.
     pub id: String,
+    /// The rule's title.
     pub title: String,
+    /// How the rule is held in Rust: `enforced`, `informational` (it lists and never fails) or
+    /// `n/a`.
     pub status: String,
+    /// `released`, or `experimental` for a rule that runs only where it is switched on.
     pub maturity: String,
 }
 
@@ -65,16 +77,20 @@ pub fn catalogue() -> &'static [CatalogueEntry] {
     })
 }
 
+/// The entry of one rule id, if `rules.json` lists it.
 pub fn entry(id: &str) -> Option<&'static CatalogueEntry> {
     catalogue().iter().find(|e| e.id == id)
 }
 
 /// What running one rule produced.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Outcome {
     /// The rule ran; an informational rule lists its findings and never fails.
     Ran {
+        /// What the rule found, sorted by location.
         violations: Vec<Violation>,
+        /// Whether the rule only lists what it finds.
         informational: bool,
     },
     /// Experimental and not switched on in `[workspace.metadata.dca] experimental`.

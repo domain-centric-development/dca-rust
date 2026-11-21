@@ -37,6 +37,104 @@ pub trait AggregateRoot: Entity {
     fn take_domain_events(&mut self) -> Vec<Self::Event>;
 }
 
+/// The events an aggregate recorded and has not handed over yet: a field of the aggregate root,
+/// to which its [`AggregateRoot`] methods delegate.
+///
+/// It records, shows what it holds and hands it over; it decides nothing. The aggregate records an
+/// event in the method that changes its state, the use case hands the events on after saving
+/// (`publish_and_clear_events`), and a rebuilt aggregate starts with none.
+///
+/// ```
+/// use dca_building_blocks::ddd::tactical::{
+///     AggregateRoot, DomainEvent, DomainEvents, Entity, EventId, Id, Timestamp, Value,
+/// };
+///
+/// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// pub struct ShelfId(u128);
+/// impl Value for ShelfId {}
+/// impl Id for ShelfId {}
+///
+/// #[derive(Debug, Clone)]
+/// pub struct ShelfEmptied {
+///     event: EventId,
+///     occurred_on: Timestamp,
+/// }
+/// impl DomainEvent for ShelfEmptied {
+///     fn event_id(&self) -> EventId { self.event }
+///     fn occurred_on(&self) -> Timestamp { self.occurred_on }
+/// }
+///
+/// pub struct Shelf {
+///     id: ShelfId,
+///     events: DomainEvents<ShelfEmptied>,
+/// }
+///
+/// impl Shelf {
+///     pub fn empty(&mut self, event: EventId, at: Timestamp) {
+///         self.events.record(ShelfEmptied { event, occurred_on: at });
+///     }
+/// }
+///
+/// impl Entity for Shelf {
+///     type Id = ShelfId;
+///     fn id(&self) -> &ShelfId { &self.id }
+/// }
+///
+/// impl AggregateRoot for Shelf {
+///     type Event = ShelfEmptied;
+///     fn domain_events(&self) -> &[ShelfEmptied] { &self.events }
+///     fn take_domain_events(&mut self) -> Vec<ShelfEmptied> { self.events.take() }
+/// }
+///
+/// let mut shelf = Shelf { id: ShelfId(1), events: DomainEvents::new() };
+/// shelf.empty(EventId::from_u128(7), Timestamp::from_unix_millis(0));
+/// assert_eq!(shelf.domain_events().len(), 1);
+/// assert_eq!(shelf.take_domain_events().len(), 1);
+/// assert!(shelf.domain_events().is_empty());
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainEvents<E> {
+    recorded: Vec<E>,
+}
+
+impl<E> DomainEvents<E> {
+    /// No events recorded.
+    pub const fn new() -> Self {
+        Self {
+            recorded: Vec::new(),
+        }
+    }
+
+    /// Records one event, after the ones recorded before it.
+    pub fn record(&mut self, event: E) {
+        self.recorded.push(event);
+    }
+
+    /// The events recorded, in the order they were recorded.
+    pub fn as_slice(&self) -> &[E] {
+        &self.recorded
+    }
+
+    /// Hands the recorded events over, in the order they were recorded, and forgets them.
+    pub fn take(&mut self) -> Vec<E> {
+        core::mem::take(&mut self.recorded)
+    }
+}
+
+impl<E> Default for DomainEvents<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<E> core::ops::Deref for DomainEvents<E> {
+    type Target = [E];
+
+    fn deref(&self) -> &[E] {
+        &self.recorded
+    }
+}
+
 /// An aggregate root that belongs to someone: reachable only through its owner.
 ///
 /// Its repository declares a lookup that takes the aggregate's id *and* the owner's id, and a use
@@ -119,7 +217,10 @@ impl Timestamp {
 impl Value for Timestamp {}
 
 /// Something that happened in the domain, recorded by an aggregate.
-pub trait DomainEvent: Clone + Debug {
+///
+/// An event is data that outlives the call that recorded it and moves between threads - into the
+/// outbox, to a relay, to a listener - so it is `Send + Sync + 'static`: it owns what it holds.
+pub trait DomainEvent: Clone + Debug + Send + Sync + 'static {
     /// The event's identity.
     fn event_id(&self) -> EventId;
 
@@ -129,7 +230,9 @@ pub trait DomainEvent: Clone + Debug {
 
 /// A published fact another bounded context may consume; its type and schema version are part of
 /// the contract and live in the type, not in the payload.
-pub trait IntegrationEvent: Clone + Debug {
+///
+/// Like a [`DomainEvent`] it owns what it holds and moves between threads.
+pub trait IntegrationEvent: Clone + Debug + Send + Sync + 'static {
     /// The event type as consumers know it.
     const TYPE: &'static str;
 
@@ -144,7 +247,46 @@ pub trait IntegrationEvent: Clone + Debug {
 }
 
 /// Domain logic that belongs to no single entity or value and works on aggregates or entities.
+///
+/// A domain service may be asynchronous - the one part of the domain that is: when it needs a fact
+/// the model does not hold, it asks a [`DomainGateway`] and awaits the answer. The aggregates,
+/// entities, values, events, failures, factories and specifications stay synchronous; the service
+/// hands them what the gateway answered.
 pub trait DomainService {}
+
+/// A port the domain declares to obtain a fact it does not hold, or to delegate a computation bound
+/// to a technology - a password hash, a tax rate, an availability - in the domain's own language.
+/// The trait sits in the domain crate; its implementation sits in an outgoing adapter.
+///
+/// **It never writes to the outside.** A gateway enriches the model so the model can decide; it
+/// creates, changes or removes no external state. Persisting, sending and publishing are the
+/// application's, through its output ports.
+///
+/// Its methods take `&self` - a gateway only reads - and are synchronous for a computation in the
+/// process, asynchronous for a fact from outside:
+///
+/// ```
+/// use std::future::Future;
+///
+/// use dca_building_blocks::ddd::tactical::DomainGateway;
+///
+/// # pub struct Region; pub struct Rate; pub struct Password; pub struct Digest;
+/// pub trait TaxRates: DomainGateway {
+///     fn rate_for(&self, region: &Region) -> impl Future<Output = Option<Rate>> + Send;
+/// }
+///
+/// pub trait PasswordHasher: DomainGateway {
+///     fn digest(&self, password: &Password) -> Digest;
+/// }
+/// ```
+///
+/// Who calls it: a [`DomainService`], the use case that hands the service the gateway, or a method
+/// of an aggregate, entity, value, factory or specification that receives the gateway as a
+/// parameter. The model is synchronous, so it calls only a synchronous gateway; a domain service
+/// awaits an asynchronous one and hands the model the answer. The model never holds a gateway in a
+/// field, never hands one out, and never looks one up - no registry, no static, no construction in
+/// place.
+pub trait DomainGateway {}
 
 /// Builds an aggregate or entity whose construction is too involved for the type itself.
 pub trait Factory {}
@@ -157,3 +299,45 @@ pub trait Specification<T> {
 
 /// A failure the domain names: an invariant the operation would break.
 pub trait DomainFailure: std::error::Error {}
+
+#[cfg(test)]
+mod tests {
+    use super::DomainEvents;
+
+    #[test]
+    fn records_in_order_and_shows_what_it_holds() {
+        let mut events = DomainEvents::new();
+        events.record("first");
+        events.record("second");
+        assert_eq!(events.as_slice(), ["first", "second"]);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events.first(), Some(&"first"));
+    }
+
+    #[test]
+    fn take_hands_the_events_over_and_forgets_them() {
+        let mut events = DomainEvents::default();
+        events.record(1);
+        events.record(2);
+        assert_eq!(events.take(), vec![1, 2]);
+        assert!(events.is_empty());
+        assert!(events.take().is_empty());
+    }
+
+    #[test]
+    fn a_clone_holds_the_same_events_and_stays_apart() {
+        let mut events = DomainEvents::new();
+        events.record(1);
+        let copy = events.clone();
+        events.record(2);
+        assert_eq!(copy.as_slice(), [1]);
+        assert_eq!(format!("{copy:?}"), "DomainEvents { recorded: [1] }");
+    }
+
+    #[test]
+    fn needs_no_default_of_the_event() {
+        struct Plain;
+        let events: DomainEvents<Plain> = DomainEvents::default();
+        assert!(events.is_empty());
+    }
+}

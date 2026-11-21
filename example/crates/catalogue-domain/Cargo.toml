@@ -1,0 +1,15 @@
+[package]
+name = "catalogue-domain"
+description = "The catalogue context's domain: the titles the library holds and the copies it acquired of each."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+context = "catalogue"
+layer = "domain"
+description = "The titles the library holds and the copies it acquires."
+
+[dependencies]
+dca-building-blocks.workspace = true
+kernel-domain.workspace = true

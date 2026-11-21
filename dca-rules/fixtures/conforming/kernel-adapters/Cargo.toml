@@ -1,0 +1,13 @@
+[package]
+name = "kernel-adapters"
+version = "0.1.0"
+edition = "2024"
+
+# The shared kernel's adapters: the outbox every context's transactional listeners register in.
+[package.metadata.dca]
+shared-kernel = true
+layer = "adapters"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
+kernel-domain = { path = "../kernel-domain" }

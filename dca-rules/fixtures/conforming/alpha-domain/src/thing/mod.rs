@@ -6,7 +6,11 @@ pub use event::{PartAdded, ThingCreated, ThingEvent};
 pub use failure::ThingError;
 pub use part::Part;
 
-use dca_building_blocks::ddd::tactical::{AggregateRoot, DomainService, Entity, EventId, Id, Owned, Timestamp, Value};
+use std::future::Future;
+
+use dca_building_blocks::ddd::tactical::{
+    AggregateRoot, DomainGateway, DomainService, Entity, EventId, Id, Owned, Timestamp, Value,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ThingId(u128);
@@ -112,7 +116,87 @@ pub struct Sizing;
 impl DomainService for Sizing {}
 
 impl Sizing {
+    /// The sizing with its usual limits; it names its type as the return type, not `Self`.
+    pub const fn usual() -> Sizing {
+        Sizing
+    }
+
     pub fn is_crowded(&self, thing: &Thing) -> bool {
         thing.parts().len() > 1
+    }
+
+    /// Whether the label names a part the catalogue lists - a fact the thing does not hold, asked
+    /// of the gateway and awaited here, in the domain service.
+    pub async fn is_listed<C: PartCatalog + Sync>(&self, thing: &Thing, catalog: &C, label: &Label) -> bool {
+        let _ = thing;
+        catalog.lists(label).await
+    }
+}
+
+/// A label's digest, computed by a gateway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LabelDigest(u64);
+impl Value for LabelDigest {}
+
+impl LabelDigest {
+    pub fn new(bits: u64) -> LabelDigest {
+        LabelDigest(bits)
+    }
+}
+
+/// Digests a label: a synchronous domain gateway, a computation bound to a technology. The model
+/// takes it as a parameter and calls it.
+pub trait LabelHasher: DomainGateway {
+    fn digest(&self, label: &Label) -> LabelDigest;
+}
+
+impl Label {
+    pub fn digest<H: LabelHasher>(&self, hasher: &H) -> LabelDigest {
+        hasher.digest(self)
+    }
+}
+
+impl Thing {
+    pub fn digest_label<H: LabelHasher>(&self, hasher: &H, label: &Label) -> LabelDigest {
+        label.digest(hasher)
+    }
+}
+
+/// Two states with names of their own: no boolean in disguise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hatch {
+    Open,
+    Closed,
+}
+
+/// The catalogue of the parts there are: a domain gateway, read-only, answered from outside.
+pub trait PartCatalog: DomainGateway {
+    fn lists(&self, label: &Label) -> impl Future<Output = bool> + Send;
+}
+
+/// An entity as a state machine: a pub enum whose variants each wrap a state with private fields,
+/// so only this module builds one - no open variant, no unnamed way in.
+pub enum Seal {
+    Open(OpenSeal),
+    Broken(BrokenSeal),
+}
+
+pub struct OpenSeal {
+    id: ThingId,
+}
+
+pub struct BrokenSeal {
+    id: ThingId,
+}
+
+impl Entity for Seal {
+    type Id = ThingId;
+    fn id(&self) -> &ThingId {
+        // A block-local glob over the enum brings in its variants, nothing else of the module.
+        use Seal::*;
+        match self {
+            Open(s) => &s.id,
+            Broken(s) => &s.id,
+        }
     }
 }

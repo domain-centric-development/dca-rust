@@ -15,6 +15,9 @@ alpha-infrastructure = { path = "../alpha-infrastructure" }
 beta-infrastructure = { path = "../beta-infrastructure" }
 beta-domain = { path = "../beta-domain" }
 beta-api = { path = "../beta-api" }
+beta-events = { path = "../beta-events" }
 vendor-sdk = { path = "../vendor-sdk" }
+# DCA-MAP-010: a contract crate under another name.
+feed = { package = "vendor-feed", version = "1" }
 axum = "0.8"
 actix-web = "4"

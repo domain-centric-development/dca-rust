@@ -230,27 +230,286 @@ pub mod keep_thing {
     }
 
     impl<R: WrongRepository> KeepThingUseCase<R> {
-        pub fn keep(&self, thing: &Thing) -> bool {
-            let _ = self.things.save(thing);
-            match self.things.save(thing) {
+        pub async fn keep(&mut self, thing: &Thing) -> bool {
+            let _ = self.things.save(thing).await;
+            match self.things.save(thing).await {
                 Ok(()) => true,
                 Err(_) => false,
             }
         }
 
-        pub fn try_keep(&self, thing: &Thing) -> bool {
-            self.things.save(thing).is_ok()
+        pub async fn keep_or_drop(&mut self, thing: &Thing) -> bool {
+            match self.things.save(thing).await {
+                Ok(()) => true,
+                other => {
+                    drop(other);
+                    false
+                }
+            }
         }
 
-        pub fn keep_anyway(&self, thing: &Thing) {
+        pub async fn try_keep(&mut self, thing: &Thing) -> bool {
+            self.things.save(thing).await.is_ok()
+        }
+
+        pub fn keep_anyway(&mut self, thing: &Thing) {
             let _ = std::panic::catch_unwind(|| self.things.save(thing));
         }
 
-        pub fn keep_named(&self, thing: &Thing) -> Result<(), String> {
-            self.things.save(thing).map_err(|e| e.to_string())?;
-            match self.things.save(thing) {
+        pub async fn keep_named(&mut self, thing: &Thing) -> Result<(), String> {
+            self.things.save(thing).await.map_err(|e| e.to_string())?;
+            match self.things.save(thing).await {
                 Ok(()) => Ok(()),
                 Err(e) => Err(e.to_string()),
+            }
+        }
+    }
+}
+
+/// DCA-RS-007: a unit shared by every use case, at the crate root, that hands out a helper besides
+/// the repository.
+pub trait SharedUnit: dca_building_blocks::application::TransactionUnit {
+    type Things: WrongRepository;
+    type Helper: shared::Helper;
+    fn things(&mut self) -> &mut Self::Things;
+    fn helper(&mut self) -> &mut Self::Helper;
+}
+
+/// DCA-USE-009 and DCA-ERR-010 through a transaction unit: the save is dropped and the events are
+/// never handed on.
+pub mod store_thing {
+    use core::marker::PhantomData;
+
+    use alpha_domain::Thing;
+    use dca_building_blocks::application::{ScopedFutureExt, TransactionBoundary, TransactionUnit};
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+    use dca_building_blocks::hexagonal::port_out::PortError;
+
+    pub trait StoreThingUnit: TransactionUnit {
+        type Things<'a>: crate::WrongRepository
+        where
+            Self: 'a;
+        fn things(&mut self) -> Self::Things<'_>;
+    }
+
+    pub struct StoreThingUseCase<T, U> {
+        transactions: T,
+        unit: PhantomData<U>,
+    }
+
+    impl<T, U> InputPort for StoreThingUseCase<T, U> {}
+
+    impl<T: TransactionBoundary<U>, U: StoreThingUnit> StoreThingUseCase<T, U> {
+        pub async fn store(&self, thing: &Thing) -> Result<(), PortError> {
+            self.transactions
+                .in_transaction(|unit| {
+                    async move {
+                        let _ = unit.things().save(thing).await;
+                        Ok(())
+                    }
+                    .scope_boxed()
+                })
+                .await
+        }
+    }
+}
+
+/// DCA-RS-007 and DCA-ERR-010 through a unit whose accessors borrow it: a helper handed out, and a
+/// removal whose failure is dropped.
+pub mod purge_thing {
+    use core::marker::PhantomData;
+    use std::future::Future;
+
+    use alpha_domain::{Thing, ThingId};
+    use dca_building_blocks::application::{ScopedFutureExt, TransactionBoundary, TransactionUnit};
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+    use dca_building_blocks::hexagonal::port_out::{OutputPort, PortError, Repository};
+
+    /// Also extends a helper and hands out a bare output port, which takes no part in the transaction.
+    pub trait PurgeThingUnit: TransactionUnit + Send + crate::shared::Helper {
+        type Things<'a>: Repository<Thing> + Send
+        where
+            Self: 'a;
+        type Helper<'a>: crate::shared::Helper
+        where
+            Self: 'a;
+        type Pending<'a>: OutputPort + Send
+        where
+            Self: 'a;
+        fn things(&mut self) -> Self::Things<'_>;
+        fn helper(&mut self) -> Self::Helper<'_>;
+        fn pending(&mut self) -> Self::Pending<'_>;
+    }
+
+    pub struct PurgeThingUseCase<T, U> {
+        transactions: T,
+        unit: PhantomData<fn() -> U>,
+    }
+
+    impl<T, U> InputPort for PurgeThingUseCase<T, U> {}
+
+    impl<T: TransactionBoundary<U> + Sync, U: PurgeThingUnit> PurgeThingUseCase<T, U> {
+        pub fn purge(&self, id: ThingId) -> impl Future<Output = Result<(), PortError>> + Send {
+            self.transactions.in_transaction(move |unit| {
+                async move {
+                    let _ = unit.things().delete_by_id(&id).await;
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+        }
+    }
+}
+
+/// DCA-USE-017: a use case exposes the operation of a workspace trait that is no input port - in
+/// the impl and as the trait's default. Its own input port's method and `Clone` are not counted.
+pub mod sort_parts {
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+
+    pub trait SortPartsInputPort: InputPort {
+        fn sort(&self);
+    }
+
+    pub trait Peek {
+        fn peek(&self);
+        fn glance(&self) {}
+    }
+
+    #[derive(Clone)]
+    pub struct SortPartsUseCase;
+    impl InputPort for SortPartsUseCase {}
+    impl SortPartsInputPort for SortPartsUseCase {
+        fn sort(&self) {}
+    }
+    impl Peek for SortPartsUseCase {
+        fn peek(&self) {}
+    }
+}
+
+use thiserror::Error as ThisError;
+
+/// DCA-ERR-003: a derived error in the application that is no port failure.
+#[derive(Debug, ThisError)]
+pub struct Blocked;
+
+/// DCA-ERR-004: a use-case failure that answers the web itself.
+#[derive(Debug)]
+pub struct Overdue;
+impl std::error::Error for Overdue {}
+impl UseCaseFailure for Overdue {}
+impl axum::response::IntoResponse for Overdue {
+    fn into_response(self) -> axum::response::Response { todo!() }
+}
+
+/// DCA-USE-016: a use case that holds another through a bound on its impl block, and one that
+/// takes another as a parameter. DCA-NAM-012/013: types named as use cases without the role.
+pub mod chain {
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+
+    use crate::other::OtherInputPort;
+
+    pub struct ChainUseCase<P> {
+        next: P,
+    }
+    impl<P> InputPort for ChainUseCase<P> {}
+    impl<P: OtherInputPort> ChainUseCase<P> {
+        pub fn run(&self) {}
+    }
+
+    pub struct RelayUseCase;
+    impl InputPort for RelayUseCase {}
+    impl RelayUseCase {
+        fn relay(&self, next: &dyn OtherInputPort) { let _ = next; }
+    }
+
+    pub struct WhenDueUseCase;
+    pub struct UpdateLimitUseCase;
+}
+
+/// DCA-USE-009, DCA-USE-012, DCA-USE-019 and DCA-ERR-010 through locals: a port reached through a
+/// local bound to the field or to the unit's accessor, and a port call's result bound first and
+/// answered later. `settle` binds the result, then shadows it with what `?` left - the later
+/// `let _ =` drops nothing.
+pub mod alias_thing {
+    use core::marker::PhantomData;
+
+    use alpha_domain::Thing;
+    use dca_building_blocks::application::{ScopedFutureExt, TransactionBoundary};
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+    use dca_building_blocks::hexagonal::port_out::PortError;
+
+    use crate::WrongRepository;
+
+    pub struct AliasQuery;
+
+    pub struct AliasThingUseCase<R: WrongRepository, T, U> {
+        things: R,
+        transactions: T,
+        unit: PhantomData<U>,
+    }
+
+    impl<R: WrongRepository, T, U> InputPort for AliasThingUseCase<R, T, U> {}
+
+    impl<R: WrongRepository, T: TransactionBoundary<U>, U: crate::store_thing::StoreThingUnit>
+        AliasThingUseCase<R, T, U>
+    {
+        pub fn find(&self, query: AliasQuery) {
+            let _ = query;
+        }
+
+        pub async fn stash(&self, thing: &Thing) -> bool {
+            let things = &self.things;
+            let saved = things.save(thing).await;
+            match saved {
+                Ok(()) => true,
+                Err(_) => false,
+            }
+        }
+
+        pub async fn peek(&self, thing: &Thing) -> bool {
+            let saved = self.things.save(thing).await;
+            if let Ok(()) = saved { true } else { false }
+        }
+
+        pub async fn settle(&self, thing: &Thing) -> Result<(), PortError> {
+            let settled = self.things.save(thing).await;
+            let settled = settled.map_err(|e| e)?;
+            let _ = settled;
+            Ok(())
+        }
+
+        pub async fn tuck(&self, thing: &Thing) -> Result<(), PortError> {
+            self.transactions
+                .in_transaction(|unit| {
+                    async move {
+                        let tucked = unit.things();
+                        let _ = tucked.save(thing).await;
+                        Ok(())
+                    }
+                    .scope_boxed()
+                })
+                .await
+        }
+    }
+}
+
+/// DCA-CYC-005: two use cases of one feature, below the configured container `usecases`, that name
+/// each other - a cycle inside one feature.
+pub mod usecases {
+    pub mod sorting {
+        pub mod sort_one {
+            pub struct SortOneUseCase;
+            impl dca_building_blocks::hexagonal::port_in::InputPort for SortOneUseCase {}
+            pub fn next() -> Option<super::sort_two::SortTwoUseCase> {
+                None
+            }
+        }
+
+        pub mod sort_two {
+            pub struct SortTwoUseCase;
+            impl dca_building_blocks::hexagonal::port_in::InputPort for SortTwoUseCase {}
+            pub fn back() -> Option<super::sort_one::SortOneUseCase> {
+                None
             }
         }
     }

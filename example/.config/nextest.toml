@@ -1,0 +1,9 @@
+# JUnit XML for the delivery gate: target/nextest/ci/junit.xml, one testcase per test, the
+# architecture tests named after their rule id (dca_tac_003).
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true

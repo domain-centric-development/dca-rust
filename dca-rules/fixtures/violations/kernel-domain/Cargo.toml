@@ -1,0 +1,13 @@
+[package]
+name = "kernel-domain"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.dca]
+shared-kernel = true
+layer = "domain"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
+# DCA-ONI-002: the shared kernel's domain depends on a persistence crate.
+sqlx = "0.8"

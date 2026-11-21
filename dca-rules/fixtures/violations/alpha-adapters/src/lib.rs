@@ -3,13 +3,27 @@ pub mod incoming {
     use alpha_application::WrongRepository;
     use alpha_domain::Calculator;
     use alpha_infrastructure::Pool;
-    use beta_api::events::Notice;
 
     use crate::outgoing::Store1;
+
+    /// DCA-MAP-008: the only module of the incoming side that names beta's events channel names
+    /// nothing of alpha's domain or application - no translation site.
+    pub mod notice {
+        use beta_events::Notice;
+
+        pub fn seen(_notice: &Notice) -> bool {
+            true
+        }
+    }
 
     /// DCA-MAP-010: the outbound external system's contract named on the incoming side.
     pub fn vendor() -> vendor_sdk::Client {
         vendor_sdk::Client
+    }
+
+    /// DCA-MAP-010: the contract crate named by its alias on the incoming side.
+    pub fn entry() -> feed::Entry {
+        todo!()
     }
 
     /// DCA-HEX-020: one handler decides a claims-only check in its body; the one with the extractor
@@ -65,8 +79,8 @@ pub mod incoming {
     pub mod ask {
         use alpha_application::other::OtherInputPort;
 
-        pub fn ask(port: &dyn OtherInputPort) -> u16 {
-            if let Ok(_) = port.run() { 200 } else { 500 }
+        pub async fn ask(port: &dyn OtherInputPort) -> u16 {
+            if let Ok(_) = port.run().await { 200 } else { 500 }
         }
 
         pub struct Ports {
@@ -74,12 +88,12 @@ pub mod incoming {
         }
         pub struct State<S>(pub S);
 
-        pub fn ask_state(State(ports): State<Ports>) -> u16 {
-            ports.other.run().map_or(500, |_| 200)
+        pub async fn ask_state(State(ports): State<Ports>) -> u16 {
+            ports.other.run().await.map_or(500, |_| 200)
         }
 
-        pub fn ask_held(ports: &Ports) -> Option<u16> {
-            ports.other.run().ok()
+        pub async fn ask_held(ports: &Ports) -> Option<u16> {
+            ports.other.run().await.ok()
         }
     }
 
@@ -109,12 +123,31 @@ pub mod incoming {
     }
 
     /// DCA-HEX-014: a handler registered for GET that builds a command; the POST handler may.
+    /// `look` calls a port that takes a command; `glance` builds a command in a helper it calls.
     pub mod web {
         use alpha_application::do_thing::RunCommand;
+        use alpha_application::tidy::sweep::SweepInputPort;
         use axum::routing::get;
 
         pub fn routes() -> axum::Router {
-            axum::Router::new().route("/run", get(run).post(create))
+            axum::Router::new()
+                .route("/run", get(run).post(create))
+                .route("/look", get(look))
+                .route("/glance", get(glance))
+        }
+
+        pub fn look(port: &dyn SweepInputPort) -> u16 {
+            port.sweep(todo!());
+            200
+        }
+
+        pub fn glance() -> u16 {
+            prepare();
+            200
+        }
+
+        fn prepare() -> Option<RunCommand> {
+            None
         }
 
         pub fn run() -> u16 {
@@ -125,6 +158,35 @@ pub mod incoming {
         pub fn create() -> u16 {
             let _command: Option<RunCommand> = None;
             201
+        }
+    }
+
+    /// DCA-HEX-017: a listener that drives an input port inside the publishing transaction.
+    pub mod listen {
+        use alpha_application::other::OtherInputPort;
+        use alpha_domain::ThingEvent;
+        use dca_building_blocks::application::{BoxFuture, EventListener};
+        use dca_building_blocks::hexagonal::port_out::PortError;
+
+        pub struct RunOnEvent {
+            port: Box<dyn OtherInputPort>,
+        }
+
+        impl EventListener<ThingEvent> for RunOnEvent {
+            fn on<'a>(&'a self, _event: &'a ThingEvent, _: &'a mut ()) -> BoxFuture<'a, Result<(), PortError>> {
+                Box::pin(async { Ok(()) })
+            }
+        }
+
+        /// The port is a field whose type the impl block bounds.
+        pub struct RunLater<P> {
+            next: P,
+        }
+
+        impl<P: OtherInputPort> EventListener<ThingEvent> for RunLater<P> {
+            fn on<'a>(&'a self, _event: &'a ThingEvent, _: &'a mut ()) -> BoxFuture<'a, Result<(), PortError>> {
+                Box::pin(async { Ok(()) })
+            }
         }
     }
 
@@ -141,7 +203,7 @@ pub mod incoming {
 pub mod outgoing {
     use alpha_application::other::OtherInputPort;
     // DCA-MAP-008: the events channel of an anti-corruption layer outside the incoming module.
-    use beta_api::events::Notice;
+    use beta_events::Notice;
     // DCA-MAP-011: the api channel of beta, which alpha does not declare.
     use beta_api::set_limit;
 
@@ -163,6 +225,12 @@ pub mod outgoing {
     pub fn store(thing: &mut alpha_domain::Thing) {
         thing.parts_mut();
         let _ = thing.take_domain_events();
+    }
+
+    /// DCA-HEX-021: an aggregate rebuilt through its named function, then changed.
+    pub fn rebuild(id: alpha_domain::ThingId) {
+        let mut rebuilt = alpha_domain::Thing::restore(id);
+        rebuilt.parts_mut();
     }
 
     /// DCA-CYC-003: two outgoing adapter modules that call each other.

@@ -1,0 +1,14 @@
+[package]
+name = "kernel-domain"
+version = "0.1.0"
+edition = "2024"
+
+# The shared kernel's domain: its domain events, services, factories, specifications and its events
+# module. A shared-kernel crate names its layer and no context; every layer rule reads it as a
+# context's crate of that layer.
+[package.metadata.dca]
+shared-kernel = true
+layer = "domain"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }

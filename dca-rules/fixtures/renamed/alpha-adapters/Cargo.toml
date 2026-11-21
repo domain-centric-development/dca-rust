@@ -1,0 +1,13 @@
+[package]
+name = "alpha-adapters"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.dca]
+context = "alpha"
+layer = "adapters"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
+alpha-domain = { path = "../alpha-domain" }
+alpha-application = { path = "../alpha-application" }

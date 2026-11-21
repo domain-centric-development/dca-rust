@@ -35,7 +35,7 @@ fn crates_of<'a>(ws: &'a Workspace, ctx: &'a str) -> impl Iterator<Item = usize>
     (0..ws.crates.len()).filter(move |k| ws.crates[*k].context.as_deref() == Some(ctx))
 }
 
-/// Every path a crate's modules name into another context's api crate: (module, line, text,
+/// Every path a crate's modules name into another context's api or events crate: (module, line, text,
 /// target context, channel).
 fn channel_uses(ws: &Workspace, k: usize) -> Vec<(usize, usize, String, String, &'static str)> {
     let own = ws.crates[k].context.clone();
@@ -66,7 +66,7 @@ fn depends_on(ws: &Workspace, k: usize, to: usize) -> bool {
 }
 
 /// DCA-MAP-001: context-map declarations sit only on the crate that declares the context.
-pub fn map_001(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_001(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (k, c) in ws.crates.iter().enumerate() {
         if c.map.is_empty() {
@@ -88,7 +88,7 @@ pub fn map_001(ws: &Workspace) -> Vec<Violation> {
 
 /// DCA-MAP-002: an external upstream has a name that is no context, a known interaction and
 /// translation, and occurs once per (name, interaction).
-pub fn map_002(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_002(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
@@ -137,7 +137,7 @@ pub fn map_002(ws: &Workspace) -> Vec<Violation> {
 
 /// DCA-MAP-004: an upstream names an existing context, not the declaring one, with a known
 /// translation and status.
-pub fn map_004(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_004(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
@@ -170,7 +170,7 @@ pub fn map_004(ws: &Workspace) -> Vec<Violation> {
 }
 
 /// DCA-MAP-005: an upstream names at least one known channel, and (context, channel) occurs once.
-pub fn map_005(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_005(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
         let c = &ws.crates[k];
@@ -201,9 +201,9 @@ pub fn map_005(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-/// DCA-MAP-006: the contexts a context declares as upstreams are the contexts whose api crate its
+/// DCA-MAP-006: the contexts a context declares as upstreams are the contexts whose api or events crate its
 /// crates depend on.
-pub fn map_006(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_006(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
@@ -218,7 +218,7 @@ pub fn map_006(ws: &Workspace) -> Vec<Violation> {
         for from in crates_of(ws, &ctx) {
             for dep in ws.crates[from].deps.iter().filter(|d| d.normal) {
                 if let Some(to) = ws.dep_crate(dep)
-                    && ws.crates[to].layer == Some(Layer::Api)
+                    && ws.crates[to].layer.is_some_and(Layer::is_published)
                     && let Some(t) = ws.crates[to].context.clone()
                     && t != ctx
                 {
@@ -228,13 +228,13 @@ pub fn map_006(ws: &Workspace) -> Vec<Violation> {
         }
         for t in declared.iter().filter(|t| !depended.contains_key(*t)) {
             out.push(at_crate(ws, "DCA-MAP-006", &ws.crates[k], format!(
-                "context `{ctx}` declares the upstream `{t}`, but none of its crates depends on the api crate of `{t}`"
+                "context `{ctx}` declares the upstream `{t}`, but none of its crates depends on the api or events crate of `{t}`"
             )));
         }
         for (t, froms) in depended.iter().filter(|(t, _)| !declared.contains(*t)) {
             for from in froms {
                 out.push(at_crate(ws, "DCA-MAP-006", &ws.crates[*from], format!(
-                    "depends on the api crate of `{t}`, which context `{ctx}` does not declare as an upstream"
+                    "depends on a published crate of `{t}`, which context `{ctx}` does not declare as an upstream"
                 )));
             }
         }
@@ -244,7 +244,7 @@ pub fn map_006(ws: &Workspace) -> Vec<Violation> {
 
 /// DCA-MAP-007: an implemented upstream is backed, for each channel, by a path the context's
 /// source names into that channel.
-pub fn map_007(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_007(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
@@ -275,8 +275,10 @@ pub fn map_007(ws: &Workspace) -> Vec<Violation> {
 }
 
 /// DCA-MAP-008: an anti-corruption layer keeps the upstream's channels inside the adapters crate,
-/// the api channel in the outgoing module, the events channel in the incoming module.
-pub fn map_008(ws: &Workspace) -> Vec<Violation> {
+/// the api channel in the outgoing module, the events channel in the incoming module; for an
+/// implemented declaration, a module there names both the channel and its own domain or
+/// application, alone or together with a module of that side it names or that names it.
+pub(super) fn map_008(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
@@ -289,12 +291,30 @@ pub fn map_008(ws: &Workspace) -> Vec<Violation> {
             if u.context == ctx || !contexts.contains(&u.context) {
                 continue;
             }
-            if let Some(api) = ws.api_crate(&u.context) {
+            for api in ws.published_crates(&u.context) {
                 for from in crates_of(ws, &ctx) {
                     if ws.crates[from].layer != Some(Layer::Adapters) && depends_on(ws, from, api) {
                         out.push(at_crate(ws, "DCA-MAP-008", &ws.crates[from], format!(
                             "depends on `{}`, but `{ctx}` translates `{}` in an anti-corruption layer - only the adapters crate depends on it",
                             ws.crates[api].package, u.context
+                        )));
+                    }
+                }
+            }
+            if u.implemented() {
+                let published: Vec<&str> = ws
+                    .published_crates(&u.context)
+                    .into_iter()
+                    .filter_map(|c| ws.crates[c].layer.map(Layer::name))
+                    .collect();
+                for ch in u.via.iter().filter(|ch| {
+                    CHANNELS.contains(&ch.as_str()) && published.contains(&ch.as_str())
+                }) {
+                    let side = if ch == "api" { "outgoing" } else { "incoming" };
+                    if !translates(ws, &ctx, &u.context, ch, side) {
+                        out.push(at_crate(ws, "DCA-MAP-008", &ws.crates[k], format!(
+                            "context `{ctx}` translates the {ch} channel of `{}` in an anti-corruption layer, but no module of the {side} side of its adapters crate names both that channel and its own domain or application, alone or with a module it names - the translation site is missing",
+                            u.context
                         )));
                     }
                 }
@@ -318,8 +338,59 @@ pub fn map_008(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-/// DCA-MAP-009: a conformist keeps the upstream's api crate out of its domain crate.
-pub fn map_009(ws: &Workspace) -> Vec<Violation> {
+/// Whether the `side` of an adapters crate of `ctx` holds the translation site for the `channel`
+/// of `upstream`: a module there names both that channel and a crate of `ctx` with the layer domain
+/// or application, or two modules of the side share the work - one names the channel, the other
+/// the own domain or application, and one of them names the other (a listener and its translator).
+fn translates(ws: &Workspace, ctx: &str, upstream: &str, channel: &str, side: &str) -> bool {
+    struct Site {
+        channel: bool,
+        own: bool,
+        names: BTreeSet<usize>,
+    }
+    let sites: BTreeMap<usize, Site> = crates_of(ws, ctx)
+        .filter(|c| ws.crates[*c].layer == Some(Layer::Adapters))
+        .flat_map(|k| {
+            ws.project_modules()
+                .filter(move |m| ws.modules[*m].krate == k && ws.module_in_side(*m, side))
+        })
+        .map(|m| {
+            let modules: BTreeSet<usize> = ws
+                .module_targets(m)
+                .iter()
+                .filter_map(|(t, _, _)| ws.target_module(t))
+                .collect();
+            let channel = modules.iter().any(|tm| {
+                ws.channel_of(*tm)
+                    .is_some_and(|(c, ch)| c == upstream && ch == channel)
+            });
+            let own = modules.iter().any(|tm| {
+                let c = &ws.crates[ws.modules[*tm].krate];
+                c.context.as_deref() == Some(ctx)
+                    && matches!(c.layer, Some(Layer::Domain | Layer::Application))
+            });
+            let names = modules.into_iter().filter(|tm| *tm != m).collect();
+            (
+                m,
+                Site {
+                    channel,
+                    own,
+                    names,
+                },
+            )
+        })
+        .collect();
+    sites.iter().any(|(m, a)| {
+        a.channel
+            && (a.own
+                || sites
+                    .iter()
+                    .any(|(n, b)| b.own && (a.names.contains(n) || b.names.contains(m))))
+    })
+}
+
+/// DCA-MAP-009: a conformist keeps the upstream's api and events crates out of its domain crate.
+pub(super) fn map_009(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
@@ -332,15 +403,16 @@ pub fn map_009(ws: &Workspace) -> Vec<Violation> {
             if u.context == ctx || !contexts.contains(&u.context) {
                 continue;
             }
-            let Some(api) = ws.api_crate(&u.context) else {
-                continue;
-            };
-            for from in crates_of(ws, &ctx).filter(|c| ws.crates[*c].layer == Some(Layer::Domain)) {
-                if depends_on(ws, from, api) {
-                    out.push(at_crate(ws, "DCA-MAP-009", &ws.crates[from], format!(
+            for api in ws.published_crates(&u.context) {
+                for from in
+                    crates_of(ws, &ctx).filter(|c| ws.crates[*c].layer == Some(Layer::Domain))
+                {
+                    if depends_on(ws, from, api) {
+                        out.push(at_crate(ws, "DCA-MAP-009", &ws.crates[from], format!(
                         "the domain depends on `{}`; `{ctx}` conforms to `{}` in its application and adapters, never in its domain",
                         ws.crates[api].package, u.context
                     )));
+                    }
                 }
             }
         }
@@ -356,7 +428,7 @@ fn is_contract(dep: &crate::model::Dep, contracts: &[String]) -> bool {
 }
 
 /// DCA-MAP-010: an external system's contract crates stay where its translation puts them.
-pub fn map_010(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_010(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
         for e in ws.crates[k]
@@ -378,6 +450,15 @@ pub fn map_010(ws: &Workspace) -> Vec<Violation> {
                     .filter(|d| d.normal && is_contract(d, &e.contract_crates))
                     .map(|d| &d.package)
                     .collect();
+                // The names the source uses for the contract crates: the package names and the
+                // alias of a renamed dependency (`feed = { package = "vendor-feed" }`).
+                let mut idents = idents.clone();
+                idents.extend(
+                    c.deps
+                        .iter()
+                        .filter(|d| is_contract(d, &e.contract_crates))
+                        .map(|d| d.ident.clone()),
+                );
                 let refused = match e.translation.as_str() {
                     "acl" => c.layer != Some(Layer::Adapters),
                     _ => c.layer == Some(Layer::Domain),
@@ -437,9 +518,9 @@ fn is_contract_crate(c: &Crate, contracts: &[String]) -> bool {
         .any(|x| *x == c.package || x.replace('-', "_") == c.ident)
 }
 
-/// DCA-MAP-011: every path into another context's channel, and every dependency on its api crate,
+/// DCA-MAP-011: every path into another context's channel, and every dependency on its api or events crate,
 /// is declared as an upstream.
-pub fn map_011(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_011(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for ctx in ws.contexts() {
         let decls: Vec<crate::model::UpstreamDecl> = ws
@@ -455,13 +536,13 @@ pub fn map_011(ws: &Workspace) -> Vec<Violation> {
             let c = &ws.crates[from];
             for dep in c.deps.iter().filter(|d| d.normal) {
                 if let Some(to) = ws.dep_crate(dep)
-                    && ws.crates[to].layer == Some(Layer::Api)
+                    && ws.crates[to].layer.is_some_and(Layer::is_published)
                     && let Some(t) = ws.crates[to].context.as_deref()
                     && t != ctx
                     && !decls.iter().any(|u| u.context == t)
                 {
                     out.push(at_crate(ws, "DCA-MAP-011", c, format!(
-                        "depends on the api crate of `{t}`, which context `{ctx}` does not declare as an upstream"
+                        "depends on a published crate of `{t}`, which context `{ctx}` does not declare as an upstream"
                     )));
                 }
             }
@@ -478,22 +559,25 @@ pub fn map_011(ws: &Workspace) -> Vec<Violation> {
 }
 
 /// DCA-MAP-012: a partnership names another existing context that declares it back.
-pub fn map_012(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_012(ws: &Workspace) -> Vec<Violation> {
     let contexts = ws.contexts();
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
         let c = &ws.crates[k];
-        for p in &c.map.partnerships {
+        for p in c.map.partnerships.iter().map(|p| &p.context) {
             let message = if *p == ctx {
                 format!("context `{ctx}` declares a partnership with itself")
             } else if !contexts.contains(p) {
                 format!(
                     "context `{ctx}` declares a partnership with `{p}`, which no crate declares as its context"
                 )
-            } else if !ws
-                .declaring_crate(p)
-                .is_some_and(|o| ws.crates[o].map.partnerships.contains(&ctx))
-            {
+            } else if !ws.declaring_crate(p).is_some_and(|o| {
+                ws.crates[o]
+                    .map
+                    .partnerships
+                    .iter()
+                    .any(|q| q.context == ctx)
+            }) {
                 format!(
                     "context `{ctx}` declares a partnership with `{p}`, which does not declare it back"
                 )
@@ -507,7 +591,7 @@ pub fn map_012(ws: &Workspace) -> Vec<Violation> {
 }
 
 /// DCA-MAP-013 (informational): every declared edge.
-pub fn map_013(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn map_013(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (ctx, k) in declaring(ws) {
         let c = &ws.crates[k];
@@ -517,10 +601,11 @@ pub fn map_013(ws: &Workspace) -> Vec<Violation> {
                 "DCA-MAP-013",
                 c,
                 format!(
-                    "{ctx} -> {} via {} ({})",
+                    "{ctx} -> {} via {} ({}){}",
                     u.context,
                     u.via.join(", "),
-                    u.translation
+                    u.translation,
+                    because(&u.rationale)
                 ),
             ));
         }
@@ -530,8 +615,13 @@ pub fn map_013(ws: &Workspace) -> Vec<Violation> {
                 "DCA-MAP-013",
                 c,
                 format!(
-                    "{ctx} -> external `{}` {} ({})",
-                    e.name, e.interaction, e.translation
+                    "{ctx} -> external `{}` {} ({}){}{}{}",
+                    e.name,
+                    e.interaction,
+                    e.translation,
+                    labelled("protocol", &e.protocol),
+                    labelled("exchanges", &e.exchanges),
+                    because(&e.rationale)
                 ),
             ));
         }
@@ -540,16 +630,38 @@ pub fn map_013(ws: &Workspace) -> Vec<Violation> {
                 ws,
                 "DCA-MAP-013",
                 c,
-                format!("{ctx} <-> {p} (partnership)"),
+                format!(
+                    "{ctx} <-> {} (partnership){}",
+                    p.context,
+                    because(&p.rationale)
+                ),
             ));
         }
     }
     out
 }
 
+/// `: <rationale>` when one is declared.
+fn because(rationale: &str) -> String {
+    if rationale.is_empty() {
+        String::new()
+    } else {
+        format!(": {rationale}")
+    }
+}
+
+/// `, <label> <value>` when the value is declared.
+fn labelled(label: &str, value: &str) -> String {
+    if value.is_empty() {
+        String::new()
+    } else {
+        format!(", {label} {value}")
+    }
+}
+
 /// DCA-MAP-014 (experimental): every dependency of a context's crate on another context's crate is
-/// named by its source. A dependency on the api crate of a planned upstream is not selected.
-pub fn map_014(ws: &Workspace) -> Vec<Violation> {
+/// named by its source. A dependency on a published crate of a planned upstream is not selected.
+pub(super) fn map_014(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (k, c) in ws.crates.iter().enumerate() {
         let Some(ctx) = c.context.as_deref() else {
@@ -581,7 +693,9 @@ pub fn map_014(ws: &Workspace) -> Vec<Violation> {
             let Some(octx) = other.context.as_deref() else {
                 continue;
             };
-            if octx == ctx || (other.layer == Some(Layer::Api) && planned.contains(octx)) {
+            if octx == ctx
+                || (other.layer.is_some_and(Layer::is_published) && planned.contains(octx))
+            {
                 continue;
             }
             if !named.contains(&to) {

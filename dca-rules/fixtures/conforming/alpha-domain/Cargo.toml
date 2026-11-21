@@ -6,12 +6,16 @@ edition = "2024"
 [package.metadata.dca]
 context = "alpha"
 layer = "domain"
+description = "Things and their parts."
 
 # alpha consumes beta's events and translates them in its incoming adapters.
 [[package.metadata.dca.upstreams]]
 context = "beta"
 via = ["events"]
 translation = "acl"
+rationale = "beta's shipping vocabulary stays out of alpha's model"
 
 [dependencies]
 dca-building-blocks = { path = "../../../../dca-building-blocks" }
+# Every context may depend on the shared kernel, layer by layer.
+kernel-domain = { path = "../kernel-domain" }

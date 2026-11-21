@@ -1,0 +1,19 @@
+# Never built: the rule suite reads it with every module name and suffix renamed, and the tests
+# check that the rules follow the configuration (Java's DcaLayout with…Subpackage / with…Suffix).
+[workspace]
+resolver = "3"
+members = ["alpha-domain", "alpha-application", "alpha-adapters"]
+
+[workspace.metadata.dca]
+experimental = "all"
+incoming-module = "driving"
+outgoing-module = "driven"
+shared-module = "common"
+web-module = "pages"
+use-case-suffix = "Service"
+input-port-suffix = "Port"
+aggregate-root-suffix = "Root"
+repository-suffix = "Repo"
+store-suffix = "Records"
+factory-suffix = "Maker"
+specification-suffix = "Rule"

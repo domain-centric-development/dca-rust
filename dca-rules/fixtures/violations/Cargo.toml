@@ -1,7 +1,7 @@
 # Never built: the rule suite reads it and expects every rule to fire.
 [workspace]
 resolver = "3"
-members = ["alpha-domain", "alpha-application", "alpha-adapters", "alpha-infrastructure", "beta-domain", "beta-api", "beta-infrastructure", "kernel", "vendor-sdk", "beta-module"]
+members = ["alpha-domain", "alpha-application", "alpha-adapters", "alpha-infrastructure", "beta-domain", "beta-api", "beta-events", "beta-infrastructure", "kernel-domain", "kernel-application", "vendor-sdk", "beta-module"]
 
 [workspace.metadata.dca]
 experimental = "all"
@@ -14,3 +14,5 @@ transaction-types = ["vendor-sdk::Client"]
 persistence-crates = ["vendor-sdk"]
 # DCA-HEX-014/018: the router presets whose registrations the suite reads.
 routers = ["axum", "actix-web"]
+# DCA-CYC-005: a module that only groups operations.
+operation-containers = ["usecases"]

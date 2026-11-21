@@ -1,0 +1,19 @@
+[package]
+name = "lending-adapters"
+description = "The lending context's adapters: the desk and the event consumers in, memory and the membership office out."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+context = "lending"
+layer = "adapters"
+
+[dependencies]
+dca-building-blocks.workspace = true
+kernel-domain.workspace = true
+kernel-application.workspace = true
+kernel-adapters.workspace = true
+lending-domain.workspace = true
+lending-application.workspace = true
+catalogue-events.workspace = true

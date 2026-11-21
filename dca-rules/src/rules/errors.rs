@@ -9,11 +9,110 @@ use super::{at, at_line, in_layer, target_has_role};
 use crate::Violation;
 use crate::model::{Layer, Target, Workspace};
 
-fn is_error_type(ws: &Workspace, d: usize) -> bool {
+/// Whether a type is an error type: it implements `std::error::Error`, or it carries a derive
+/// `[workspace.metadata.dca] error-derives` lists (`thiserror::Error` by default).
+pub(crate) fn is_error_type(ws: &Workspace, d: usize) -> bool {
     ws.implements[d].iter().any(|t| matches!(t, Target::External { krate, path } if matches!(krate.as_str(), "std" | "core") && path.ends_with(&["error".to_string(), "Error".to_string()])))
+        || derives_error(ws, d)
 }
 
-pub fn err_001(ws: &Workspace) -> Vec<Violation> {
+/// Whether a type carries a configured error derive: the derive resolves to `crate::Name` of a
+/// configured entry, or is written as one.
+fn derives_error(ws: &Workspace, d: usize) -> bool {
+    let attrs: &[syn::Attribute] = match ws.item(d) {
+        syn::Item::Struct(s) => &s.attrs,
+        syn::Item::Enum(e) => &e.attrs,
+        _ => return false,
+    };
+    let m = ws.decls[d].module;
+    let written: BTreeSet<String> = ws
+        .config
+        .error_derives
+        .iter()
+        .map(|c| c.replace('-', "_"))
+        .collect();
+    attrs
+        .iter()
+        .filter(|a| a.path().is_ident("derive"))
+        .filter_map(|a| {
+            a.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+            )
+            .ok()
+        })
+        .flatten()
+        .any(|p| {
+            written.contains(&super::render_path(&p))
+                || ws
+                    .resolve_path(m, &p)
+                    .is_some_and(|t| ws.is_configured(&t, &ws.config.error_derives))
+        })
+}
+
+/// A failure type of the project: a type with the DomainFailure, UseCaseFailure or OutputPortFailure
+/// role, or an error type in a domain or application crate.
+fn is_failure(ws: &Workspace, d: usize) -> bool {
+    !ws.is_building_block_decl(d)
+        && (ws.has_role(d, "DomainFailure")
+            || ws.has_role(d, "UseCaseFailure")
+            || ws.has_role(d, "OutputPortFailure")
+            || (matches!(
+                ws.layer_of_decl(d),
+                Some(Layer::Domain | Layer::Application)
+            ) && is_error_type(ws, d)))
+}
+
+/// DCA-ERR-004: a failure carries no framework metadata - no derive or attribute of a configured
+/// framework crate, and no impl of one of its traits (`impl IntoResponse for ...`): how the outside
+/// answers a failure is the incoming adapter's decision.
+pub(super) fn err_004(ws: &Workspace) -> Vec<Violation> {
+    let frameworks: BTreeSet<String> = ws
+        .config
+        .framework_crates
+        .iter()
+        .map(|c| c.replace('-', "_"))
+        .collect();
+    let mut out = vec![];
+    for d in ws.type_decls().filter(|d| is_failure(ws, *d)) {
+        let attrs: &[syn::Attribute] = match ws.item(d) {
+            syn::Item::Struct(s) => &s.attrs,
+            syn::Item::Enum(e) => &e.attrs,
+            _ => &[],
+        };
+        for hit in super::events::framework_attr(ws, ws.decls[d].module, attrs) {
+            out.push(at(
+                ws,
+                "DCA-ERR-004",
+                d,
+                format!(
+                    "failure `{}` carries `{hit}` from a framework; the incoming adapter decides how the outside answers it",
+                    ws.decl_name(d)
+                ),
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        for t in &ws.implements[d] {
+            if let Target::External { krate, .. } = t
+                && frameworks.contains(krate)
+                && seen.insert(ws.target_name(t))
+            {
+                out.push(at(
+                    ws,
+                    "DCA-ERR-004",
+                    d,
+                    format!(
+                        "failure `{}` implements `{}` of a framework; the incoming adapter translates it",
+                        ws.decl_name(d),
+                        ws.target_name(t)
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
+pub(super) fn err_001(ws: &Workspace) -> Vec<Violation> {
     ws.type_decls()
         .filter(|d| {
             in_layer(ws, *d, Layer::Domain)
@@ -34,7 +133,7 @@ pub fn err_001(ws: &Workspace) -> Vec<Violation> {
         .collect()
 }
 
-pub fn err_002(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn err_002(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in ws
         .types_with_role("DomainFailure")
@@ -67,7 +166,7 @@ pub fn err_002(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn err_003(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn err_003(ws: &Workspace) -> Vec<Violation> {
     ws.type_decls()
         .filter(|d| in_layer(ws, *d, Layer::Application) && is_error_type(ws, *d))
         .filter(|d| {
@@ -135,7 +234,7 @@ fn closed_results(ws: &Workspace) -> BTreeMap<usize, BTreeSet<String>> {
     out
 }
 
-pub fn err_006(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn err_006(ws: &Workspace) -> Vec<Violation> {
     let failure = |t: &Target| {
         matches!(t, Target::Decl(d) if !ws.is_building_block_decl(*d)
             && (ws.has_role(*d, "DomainFailure") || ws.has_role(*d, "UseCaseFailure")))
@@ -206,7 +305,7 @@ pub fn err_006(ws: &Workspace) -> Vec<Violation> {
 /// a value whose type implements `Refusal`. A closed result may hold only outcomes that are not
 /// refusals; whether a variant refuses is domain knowledge the type does not show, so the rule asks
 /// rather than fails.
-pub fn err_008(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn err_008(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (d, variants) in closed_results(ws) {
         // The Err side of a Result is a failure, not a closed result.
@@ -247,7 +346,7 @@ pub fn err_008(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn err_005(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn err_005(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("DomainFailure")
         .chain(ws.types_with_role("PortFailure"))
         .filter(|d| {
@@ -274,7 +373,7 @@ pub fn err_005(ws: &Workspace) -> Vec<Violation> {
 /// implements DomainFailure - a struct literal, a tuple-struct or variant call, a unit struct or
 /// unit variant used as a value, a variant or tuple struct passed as a function, or a call of an
 /// associated function that returns `Self` or the type itself.
-pub fn err_009(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn err_009(ws: &Workspace) -> Vec<Violation> {
     struct Constructions<'w> {
         ws: &'w Workspace,
         module: usize,
@@ -351,6 +450,9 @@ pub fn err_009(ws: &Workspace) -> Vec<Violation> {
             self.note(&e.path, e.path.span().start().line);
             syn::visit::visit_expr_path(self, e);
         }
+        // A pattern names a variant to match it and constructs nothing; syn holds a path pattern
+        // (`Failure::Unit =>`) as an expression path, so patterns are not entered.
+        fn visit_pat(&mut self, _: &'ast syn::Pat) {}
     }
 
     let mut out = vec![];
@@ -399,7 +501,12 @@ fn bare(e: &syn::Expr) -> &syn::Expr {
 fn catches_all(p: &syn::Pat, binding_counts: bool) -> bool {
     match p {
         syn::Pat::Wild(_) | syn::Pat::Rest(_) => true,
-        syn::Pat::Ident(i) => binding_counts && i.subpat.is_none(),
+        // `None`, `Empty`: a unit variant or a constant, not a binding.
+        syn::Pat::Ident(i) => {
+            binding_counts
+                && i.subpat.is_none()
+                && !i.ident.to_string().starts_with(char::is_uppercase)
+        }
         syn::Pat::Paren(p) => catches_all(&p.pat, binding_counts),
         syn::Pat::Type(t) => catches_all(&t.pat, binding_counts),
         _ => false,
@@ -458,21 +565,124 @@ fn discards_arg(e: &syn::Expr) -> bool {
 }
 
 struct PortAnswers<'a> {
+    ws: &'a Workspace,
     receivers: &'a super::Receivers,
+    /// Locals bound to the result of a port call (`let r = port.run().await;`).
+    results: super::Aliases,
     found: Vec<(usize, String, String)>,
     in_catch_unwind: usize,
 }
 
-impl PortAnswers<'_> {
-    /// `receiver.method` when an expression is a call of a method on a port.
-    fn port_call(&self, e: &syn::Expr) -> Option<String> {
-        match bare(e) {
-            syn::Expr::MethodCall(mc) => self
-                .receivers
-                .named_by(&mc.receiver)
-                .map(|r| format!("{r}.{}", mc.method)),
+/// `receiver.method` when an expression is a call of a method on a port that can fail: a call
+/// whose method the receiver's type declares in the workspace (its trait, the traits that trait
+/// extends, or its own impls) only with an answer other than a `Result` - an `Option`, a plain
+/// value - is no failing call. A method the workspace does not declare (a building block's, a
+/// receiver whose type is not written out) counts as failing.
+fn port_call(ws: &Workspace, receivers: &super::Receivers, e: &syn::Expr) -> Option<String> {
+    let syn::Expr::MethodCall(mc) = bare(e) else {
+        return None;
+    };
+    let r = receivers.named_by(&mc.receiver)?;
+    let method = mc.method.to_string();
+    let answers = receivers
+        .types
+        .get(&r)
+        .and_then(|targets| method_answers_result(ws, targets, &method));
+    (answers != Some(false)).then(|| format!("{r}.{method}"))
+}
+
+/// Whether the method `name` of the types `targets` answers a `Result`, when the workspace declares
+/// it on one of them.
+fn method_answers_result(ws: &Workspace, targets: &[Target], name: &str) -> Option<bool> {
+    let mut found = None;
+    let mut seen = BTreeSet::new();
+    let mut todo: Vec<usize> = targets
+        .iter()
+        .filter_map(|t| match t {
+            Target::Decl(d) => Some(*d),
             _ => None,
+        })
+        .collect();
+    while let Some(d) = todo.pop() {
+        if !seen.insert(d) {
+            continue;
         }
+        let methods = if ws.decls[d].kind == crate::model::DeclKind::Trait {
+            if let syn::Item::Trait(t) = ws.item(d) {
+                for b in &t.supertraits {
+                    if let syn::TypeParamBound::Trait(tb) = b
+                        && let Some(Target::Decl(s)) = ws.resolve_path(ws.decls[d].module, &tb.path)
+                    {
+                        todo.push(s);
+                    }
+                }
+            }
+            ws.trait_methods(d)
+        } else {
+            ws.methods(d)
+        };
+        for m in methods.iter().filter(|m| m.name == name) {
+            let fails = match &m.sig.output {
+                syn::ReturnType::Type(_, ty) => answers_result(ty),
+                syn::ReturnType::Default => false,
+            };
+            found = Some(found.unwrap_or(false) || fails);
+        }
+    }
+    found
+}
+
+/// Whether a return type answers a `Result` (any type named `...Result`), looked through
+/// `impl Future<Output = ..>`, `Pin<Box<dyn Future<Output = ..>>>` and `BoxFuture<'_, ..>`.
+fn answers_result(ty: &syn::Type) -> bool {
+    let future_output =
+        |bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>| {
+            bounds.iter().find_map(|b| match b {
+                syn::TypeParamBound::Trait(tb) => {
+                    let last = tb.path.segments.last()?;
+                    let syn::PathArguments::AngleBracketed(args) = &last.arguments else {
+                        return None;
+                    };
+                    args.args.iter().find_map(|a| match a {
+                        syn::GenericArgument::AssocType(at) if at.ident == "Output" => {
+                            Some(answers_result(&at.ty))
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+        };
+    match ty {
+        syn::Type::ImplTrait(it) => future_output(&it.bounds).unwrap_or(false),
+        syn::Type::TraitObject(to) => future_output(&to.bounds).unwrap_or(false),
+        syn::Type::Paren(p) => answers_result(&p.elem),
+        syn::Type::Group(g) => answers_result(&g.elem),
+        syn::Type::Path(tp) => {
+            let Some(last) = tp.path.segments.last() else {
+                return false;
+            };
+            if last.ident.to_string().ends_with("Result") {
+                return true;
+            }
+            let wraps = matches!(
+                last.ident.to_string().as_str(),
+                "Pin" | "Box" | "BoxFuture" | "LocalBoxFuture"
+            );
+            wraps
+                && matches!(&last.arguments, syn::PathArguments::AngleBracketed(a)
+                    if a.args.iter().any(|g| matches!(g, syn::GenericArgument::Type(t) if answers_result(t))))
+        }
+        _ => false,
+    }
+}
+
+impl PortAnswers<'_> {
+    /// `receiver.method` when an expression is a call of a method on a port, or a local bound to
+    /// the result of one.
+    fn port_call(&self, e: &syn::Expr) -> Option<String> {
+        port_call(self.ws, self.receivers, e)
+            .or_else(|| self.results.of(bare(e)).map(str::to_string))
     }
 
     fn note(&mut self, line: usize, call: String, how: impl Into<String>) {
@@ -576,8 +786,9 @@ impl<'ast> syn::visit::Visit<'ast> for PortAnswers<'_> {
 /// DCA-ERR-010 (experimental). In the application and the incoming adapters, the failure of a call
 /// on a port - a parameter, a written-out local or a field of `self` whose type carries the
 /// input-port or output-port role - is propagated or matched by name, never answered without
-/// naming it.
-pub fn err_010(ws: &Workspace) -> Vec<Violation> {
+/// naming it. A call of a method the port declares with an answer other than a `Result` is no
+/// failing call.
+pub(super) fn err_010(ws: &Workspace) -> Vec<Violation> {
     let is_port =
         |t: &Target| target_has_role(ws, t, "InputPort") || target_has_role(ws, t, "OutputPort");
     let mut out = vec![];
@@ -587,8 +798,11 @@ pub fn err_010(ws: &Workspace) -> Vec<Violation> {
             if receivers.is_empty() {
                 continue;
             }
+            let results = super::aliases(f.block, &mut |e, _| port_call(ws, &receivers, e));
             let mut v = PortAnswers {
+                ws,
                 receivers: &receivers,
+                results,
                 found: vec![],
                 in_catch_unwind: 0,
             };
@@ -612,9 +826,179 @@ pub fn err_010(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-/// DCA-ERR-007 (informational): a failure carries values, not prose and not the model's objects -
-/// lists every field of a failure whose type is `String` or names an aggregate or an entity.
-pub fn err_007(ws: &Workspace) -> Vec<Violation> {
+/// Types a failure's field looks through, as Java looks through `java.util`: containers and smart
+/// pointers of std.
+const CONTAINERS: &[&str] = &[
+    "Option",
+    "Vec",
+    "VecDeque",
+    "LinkedList",
+    "HashMap",
+    "BTreeMap",
+    "HashSet",
+    "BTreeSet",
+    "Box",
+    "Rc",
+    "Arc",
+    "Cow",
+];
+
+const NUMBERS: &[&str] = &[
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "isize",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "usize",
+    "f32",
+    "f64",
+    "bool",
+    "char",
+    "NonZeroU8",
+    "NonZeroU16",
+    "NonZeroU32",
+    "NonZeroU64",
+    "NonZeroU128",
+    "NonZeroUsize",
+    "NonZeroI8",
+    "NonZeroI16",
+    "NonZeroI32",
+    "NonZeroI64",
+    "NonZeroI128",
+    "NonZeroIsize",
+];
+
+/// What a type a failure's field involves is, when it is listed: a plain string, an aggregate or
+/// entity, or anything that is neither an id, a value, a number, an enum, a time type nor the
+/// failure it wraps.
+fn field_finding(
+    ws: &Workspace,
+    m: usize,
+    generics: &[&syn::Generics],
+    ty: &syn::Type,
+) -> Vec<String> {
+    let mut out = vec![];
+    match ty {
+        syn::Type::Reference(r) => return field_finding(ws, m, generics, &r.elem),
+        syn::Type::Paren(p) => return field_finding(ws, m, generics, &p.elem),
+        syn::Type::Group(g) => return field_finding(ws, m, generics, &g.elem),
+        syn::Type::Slice(s) => return field_finding(ws, m, generics, &s.elem),
+        syn::Type::Array(a) => return field_finding(ws, m, generics, &a.elem),
+        syn::Type::Tuple(t) => {
+            return t
+                .elems
+                .iter()
+                .flat_map(|e| field_finding(ws, m, generics, e))
+                .collect();
+        }
+        syn::Type::Path(tp) if tp.qself.is_none() => {
+            let Some(last) = tp.path.segments.last() else {
+                return out;
+            };
+            let name = last.ident.to_string();
+            let args: Vec<&syn::Type> = match &last.arguments {
+                syn::PathArguments::AngleBracketed(a) => a
+                    .args
+                    .iter()
+                    .filter_map(|a| match a {
+                        syn::GenericArgument::Type(t) => Some(t),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => vec![],
+            };
+            for a in &args {
+                out.extend(field_finding(ws, m, generics, a));
+            }
+            if name == "String" || name == "str" {
+                out.push(format!("a plain string (`{name}`)"));
+                return out;
+            }
+            // A wrapped cause (`std::io::Error`, `anyhow::Error`) and a span of time are fine.
+            if CONTAINERS.contains(&name.as_str())
+                || NUMBERS.contains(&name.as_str())
+                || ws.config.timestamp_types.contains(&name)
+                || name == "Error"
+                || name == "Duration"
+            {
+                return out;
+            }
+            // The type itself, its arguments left out (read above); a generic parameter stands for
+            // its bounds.
+            let mut bare = tp.clone();
+            if let Some(l) = bare.path.segments.last_mut() {
+                l.arguments = syn::PathArguments::None;
+            }
+            let resolved = ws.type_targets(m, &syn::Type::Path(bare), generics);
+            let mut model = None;
+            let mut fine = false;
+            for t in resolved {
+                if target_has_role(ws, &t, "AggregateRoot") || target_has_role(ws, &t, "Entity") {
+                    model = Some(ws.target_name(&t));
+                } else if target_has_role(ws, &t, "Id")
+                    || target_has_role(ws, &t, "Value")
+                    // The cause a failure wraps, as Java's exception carries its cause.
+                    || target_has_role(ws, &t, "DomainFailure")
+                    || target_has_role(ws, &t, "PortFailure")
+                    || matches!(t, Target::Decl(d) if is_error_type(ws, d))
+                    || ws.building_block(&t).as_deref() == Some("PortError")
+                    || matches!(t, Target::Decl(d) if ws.decls[d].kind == crate::model::DeclKind::Enum)
+                {
+                    fine = true;
+                }
+            }
+            match model {
+                Some(n) => out.push(format!("an aggregate or entity (`{n}`)")),
+                None if fine => {}
+                None => out.push(format!("neither an id, a value nor a number (`{name}`)")),
+            }
+        }
+        // A wrapped cause: `dyn Error + Send + Sync`, `impl Error`.
+        syn::Type::TraitObject(syn::TypeTraitObject { bounds, .. })
+        | syn::Type::ImplTrait(syn::TypeImplTrait { bounds, .. })
+            if bounds.iter().any(|b| {
+                matches!(b, syn::TypeParamBound::Trait(tb)
+                    if tb.path.segments.last().is_some_and(|s| s.ident == "Error"))
+            }) => {}
+        other => out.push(format!(
+            "neither an id, a value nor a number (`{}`)",
+            render_type(other)
+        )),
+    }
+    out
+}
+
+/// A type as the finding names it: a trait object or `impl` by its bounds' paths.
+fn render_type(ty: &syn::Type) -> String {
+    let bounds = match ty {
+        syn::Type::TraitObject(t) => Some(("dyn ", &t.bounds)),
+        syn::Type::ImplTrait(t) => Some(("impl ", &t.bounds)),
+        _ => None,
+    };
+    match bounds {
+        Some((kw, bounds)) => {
+            let parts: Vec<String> = bounds
+                .iter()
+                .filter_map(|b| match b {
+                    syn::TypeParamBound::Trait(tb) => Some(super::render_path(&tb.path)),
+                    syn::TypeParamBound::Lifetime(l) => Some(format!("'{}", l.ident)),
+                    _ => None,
+                })
+                .collect();
+            format!("{kw}{}", parts.join(" + "))
+        }
+        None => super::render(ty),
+    }
+}
+
+/// DCA-ERR-007 (informational): a failure carries ids and figures, never display data or objects.
+pub(super) fn err_007(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     let failures: BTreeSet<usize> = ws
         .types_with_role("DomainFailure")
@@ -622,27 +1006,23 @@ pub fn err_007(ws: &Workspace) -> Vec<Violation> {
         .filter(|d| !ws.is_building_block_decl(*d))
         .collect();
     for d in failures {
-        for (f, targets) in super::field_targets(ws, d) {
-            let text = super::type_idents(f.ty).iter().any(|i| i == "String");
-            let model = targets.iter().find(|t| {
-                target_has_role(ws, t, "AggregateRoot") || target_has_role(ws, t, "Entity")
-            });
-            let what = match (text, model) {
-                (_, Some(t)) => format!("the model object `{}`", ws.target_name(t)),
-                (true, None) => "a `String`".to_string(),
-                (false, None) => continue,
-            };
-            out.push(at(
-                ws,
-                "DCA-ERR-007",
-                d,
-                format!(
-                    "failure `{}` carries {what} in `{}` - check: does it carry the values the \
-                     caller needs to answer, by name?",
-                    ws.decl_name(d),
-                    super::field_label(&f)
-                ),
-            ));
+        let m = ws.decls[d].module;
+        let generics = super::type_generics(ws, d);
+        for f in ws.fields(d) {
+            let mut findings = field_finding(ws, m, &generics, f.ty);
+            findings.dedup();
+            for what in findings {
+                out.push(at(
+                    ws,
+                    "DCA-ERR-007",
+                    d,
+                    format!(
+                        "failure `{}` carries {what} in `{}` - carry the id or the figure the rule compared",
+                        ws.decl_name(d),
+                        super::field_label(&f)
+                    ),
+                ));
+            }
         }
     }
     out

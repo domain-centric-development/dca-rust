@@ -1,0 +1,9 @@
+[package]
+name = "arch-tests"
+description = "Runs the DCA rule suite over this workspace, one test per rule id."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+dca-rules.workspace = true

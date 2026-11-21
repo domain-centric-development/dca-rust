@@ -6,6 +6,15 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 version.workspace = true
+rust-version = "1.92"
+readme = "../README.md"
+documentation = "https://docs.rs/dca-building-blocks"
+keywords = ["ddd", "domain-driven-design", "hexagonal", "clean-architecture", "architecture"]
+categories = ["rust-patterns", "asynchronous"]
+include = ["src/**/*.rs", "Cargo.toml", "LICENSE"]
 publish.workspace = true
 
 [dependencies]
+
+[lints]
+workspace = true

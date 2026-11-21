@@ -46,7 +46,7 @@ pub mod check_part {
     }
 
     pub trait CheckPartInputPort: InputPort {
-        fn check(&self, command: CheckPartCommand) -> CheckPartResult;
+        fn check(&self, command: CheckPartCommand) -> dca_building_blocks::application::BoxFuture<'_, CheckPartResult>;
     }
 }
 

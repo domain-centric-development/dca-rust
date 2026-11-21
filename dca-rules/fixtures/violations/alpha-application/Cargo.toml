@@ -18,3 +18,5 @@ alpha-adapters = { path = "../alpha-adapters" }
 alpha-infrastructure = { path = "../alpha-infrastructure" }
 beta-api = { path = "../beta-api" }
 vendor-sdk = { path = "../vendor-sdk" }
+thiserror = "2"
+axum = "0.8"

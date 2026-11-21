@@ -1,0 +1,23 @@
+[package]
+name = "lending-domain"
+description = "The lending context's domain: the copies members borrow, their loans, and the reservations members place."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+context = "lending"
+layer = "domain"
+description = "Lending copies to members, their returns and reservations."
+
+# Lending learns of new copies from the catalogue's integration events and translates them in its
+# incoming adapters.
+[[package.metadata.dca.upstreams]]
+context = "catalogue"
+via = ["events"]
+translation = "acl"
+rationale = "lending keeps its own copy model; the catalogue's titles and holdings stay outside it"
+
+[dependencies]
+dca-building-blocks.workspace = true
+kernel-domain.workspace = true

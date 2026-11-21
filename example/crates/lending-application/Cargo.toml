@@ -1,0 +1,16 @@
+[package]
+name = "lending-application"
+description = "The lending context's use cases and output ports."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+context = "lending"
+layer = "application"
+
+[dependencies]
+dca-building-blocks.workspace = true
+kernel-domain.workspace = true
+kernel-application.workspace = true
+lending-domain.workspace = true

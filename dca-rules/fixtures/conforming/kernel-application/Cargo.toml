@@ -1,0 +1,13 @@
+[package]
+name = "kernel-application"
+version = "0.1.0"
+edition = "2024"
+
+# The shared kernel's application: the output ports the contexts share.
+[package.metadata.dca]
+shared-kernel = true
+layer = "application"
+
+[dependencies]
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
+kernel-domain = { path = "../kernel-domain" }

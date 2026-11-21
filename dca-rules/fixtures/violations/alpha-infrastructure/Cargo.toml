@@ -9,4 +9,6 @@ layer = "infrastructure"
 
 [dependencies]
 
+dca-building-blocks = { path = "../../../../dca-building-blocks" }
 alpha-domain = { path = "../alpha-domain" }
+alpha-application = { path = "../alpha-application" }

@@ -1,0 +1,13 @@
+[package]
+name = "kernel-domain"
+description = "The shared kernel's domain: the identities of a title and of a copy, the same in every context."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+shared-kernel = true
+layer = "domain"
+
+[dependencies]
+dca-building-blocks.workspace = true

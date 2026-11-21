@@ -1,0 +1,24 @@
+[package]
+name = "bootstrap"
+description = "Wires the library: both contexts over their in-memory stores, the relays between them."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[package.metadata.dca]
+layer = "bootstrap"
+
+[dependencies]
+dca-building-blocks.workspace = true
+kernel-domain.workspace = true
+kernel-adapters.workspace = true
+catalogue-domain.workspace = true
+catalogue-application.workspace = true
+catalogue-adapters.workspace = true
+catalogue-events.workspace = true
+lending-domain.workspace = true
+lending-application.workspace = true
+lending-adapters.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

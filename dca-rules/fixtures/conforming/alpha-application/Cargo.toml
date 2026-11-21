@@ -10,3 +10,5 @@ layer = "application"
 [dependencies]
 dca-building-blocks = { path = "../../../../dca-building-blocks" }
 alpha-domain = { path = "../alpha-domain" }
+kernel-domain = { path = "../kernel-domain" }
+kernel-application = { path = "../kernel-application" }

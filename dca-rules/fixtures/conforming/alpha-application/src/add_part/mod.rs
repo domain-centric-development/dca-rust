@@ -1,7 +1,10 @@
 use core::fmt;
+use core::marker::PhantomData;
 
-use alpha_domain::thing::{Label, PartId, Sizing, ThingError, ThingEvent, ThingId};
-use dca_building_blocks::application::{TransactionBoundary, UseCaseFailure};
+use alpha_domain::thing::{Label, PartCatalog, PartId, Sizing, ThingError, ThingEvent, ThingId};
+use dca_building_blocks::application::{
+    BoxFuture, ScopedFutureExt, TransactionBoundary, TransactionUnit, UseCaseFailure,
+};
 use dca_building_blocks::hexagonal::port_in::{InputPort, UseCase};
 use dca_building_blocks::hexagonal::port_out::{DomainEventPublisher, PortError};
 
@@ -17,6 +20,7 @@ pub struct AddPartCommand {
 pub struct AddPartResult {
     pub part: PartId,
     pub crowded: bool,
+    pub listed: bool,
 }
 
 #[derive(Debug)]
@@ -43,52 +47,72 @@ impl From<PortError> for AddPartError {
 
 pub trait AddPartInputPort: UseCase<AddPartCommand, Output = Result<AddPartResult, AddPartError>> {}
 
-pub struct AddPartUseCase<R, P, T, C, I> {
-    things: R,
-    events: P,
+/// What adding a part works with inside its transaction: the things and the event publisher, as
+/// the transaction sees them.
+pub trait AddPartUnit: TransactionUnit + Send {
+    type Things<'a>: ThingRepository + Send
+    where
+        Self: 'a;
+    type Events<'a>: DomainEventPublisher<ThingEvent> + Send
+    where
+        Self: 'a;
+    fn things(&mut self) -> Self::Things<'_>;
+    fn events(&mut self) -> Self::Events<'_>;
+}
+
+pub struct AddPartUseCase<U, T, C, I, K> {
     transactions: T,
     clock: C,
     ids: I,
     sizing: Sizing,
+    catalog: K,
+    unit: PhantomData<fn() -> U>,
 }
 
-impl<R, P, T, C, I> AddPartUseCase<R, P, T, C, I> {
-    pub fn new(things: R, events: P, transactions: T, clock: C, ids: I, sizing: Sizing) -> Self {
-        Self { things, events, transactions, clock, ids, sizing }
+impl<U, T, C, I, K> AddPartUseCase<U, T, C, I, K> {
+    pub fn new(transactions: T, clock: C, ids: I, sizing: Sizing, catalog: K) -> Self {
+        Self { transactions, clock, ids, sizing, catalog, unit: PhantomData }
     }
 }
 
-impl<R, P, T, C, I> InputPort for AddPartUseCase<R, P, T, C, I> {}
+impl<U, T, C, I, K> InputPort for AddPartUseCase<U, T, C, I, K> {}
 
-impl<R, P, T, C, I> UseCase<AddPartCommand> for AddPartUseCase<R, P, T, C, I>
+impl<U, T, C, I, K> UseCase<AddPartCommand> for AddPartUseCase<U, T, C, I, K>
 where
-    R: ThingRepository,
-    P: DomainEventPublisher<ThingEvent>,
-    T: TransactionBoundary,
-    C: Clock,
-    I: IdSource,
+    U: AddPartUnit,
+    T: TransactionBoundary<U> + Sync,
+    C: Clock + Sync,
+    I: IdSource + Sync,
+    K: PartCatalog + Sync,
 {
     type Output = Result<AddPartResult, AddPartError>;
 
-    fn execute(&self, command: AddPartCommand) -> Self::Output {
-        let label = Label::new(&command.label).map_err(AddPartError::Refused)?;
-        self.transactions.in_transaction(|| {
-            let mut thing = self.things.find_by_id(&command.thing)?.ok_or(AddPartError::NotFound)?;
-            let part = self.ids.next_part_id();
-            thing.add_part(part, label, self.ids.next_event_id(), self.clock.now()).map_err(AddPartError::Refused)?;
-            self.things.save(&thing)?;
-            self.events.publish_and_clear_events(&mut thing)?;
-            Ok(AddPartResult { part, crowded: self.sizing.is_crowded(&thing) })
-        })
+    fn execute(&self, command: AddPartCommand) -> BoxFuture<'_, Self::Output> {
+        let label = match Label::new(&command.label) {
+            Ok(label) => label,
+            Err(refused) => return Box::pin(async move { Err(AddPartError::Refused(refused)) }),
+        };
+        Box::pin(self.transactions.in_transaction(move |unit| {
+            async move {
+                let mut thing = unit.things().find_by_id(&command.thing).await?.ok_or(AddPartError::NotFound)?;
+                let listed = self.sizing.is_listed(&thing, &self.catalog, &label).await;
+                let part = self.ids.next_part_id();
+                thing.add_part(part, label, self.ids.next_event_id(), self.clock.now()).map_err(AddPartError::Refused)?;
+                unit.things().save(&thing).await?;
+                unit.events().publish_and_clear_events(&mut thing).await?;
+                Ok(AddPartResult { part, crowded: self.sizing.is_crowded(&thing), listed })
+            }
+            .scope_boxed()
+        }))
     }
 }
 
-impl<R, P, T, C, I> AddPartInputPort for AddPartUseCase<R, P, T, C, I>
+impl<U, T, C, I, K> AddPartInputPort for AddPartUseCase<U, T, C, I, K>
 where
-    R: ThingRepository,
-    P: DomainEventPublisher<ThingEvent>,
-    T: TransactionBoundary,
-    C: Clock,
-    I: IdSource,
+    U: AddPartUnit,
+    T: TransactionBoundary<U> + Sync,
+    C: Clock + Sync,
+    I: IdSource + Sync,
+    K: PartCatalog + Sync,
 {
 }

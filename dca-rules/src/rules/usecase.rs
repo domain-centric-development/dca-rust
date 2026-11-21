@@ -4,12 +4,12 @@ use std::collections::BTreeSet;
 
 use super::{
     at, calls, field_roles, field_targets, immutability, in_layer, target_has_role, type_idents,
-    use_cases,
+    unit_roles, use_cases,
 };
 use crate::Violation;
 use crate::model::{DeclKind, Layer, Target, Workspace};
 
-pub fn use_001(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_001(ws: &Workspace) -> Vec<Violation> {
     ws.trait_decls()
         .filter(|d| ws.decl_name(*d) == "InputPort")
         .map(|d| {
@@ -43,7 +43,7 @@ fn named_outside(
         .collect()
 }
 
-pub fn use_002(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_002(ws: &Workspace) -> Vec<Violation> {
     named_outside(
         ws,
         "DCA-USE-002",
@@ -53,7 +53,7 @@ pub fn use_002(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
-pub fn use_003(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_003(ws: &Workspace) -> Vec<Violation> {
     named_outside(
         ws,
         "DCA-USE-003",
@@ -74,15 +74,15 @@ fn immutable_named(ws: &Workspace, rule: &'static str, suffix: &str) -> Vec<Viol
         .collect()
 }
 
-pub fn use_004(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_004(ws: &Workspace) -> Vec<Violation> {
     immutable_named(ws, "DCA-USE-004", "Command")
 }
 
-pub fn use_005(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_005(ws: &Workspace) -> Vec<Violation> {
     immutable_named(ws, "DCA-USE-005", "Query")
 }
 
-pub fn use_006(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_006(ws: &Workspace) -> Vec<Violation> {
     ws.type_decls()
         .filter(|d| {
             ws.decl_name(*d).ends_with("Result")
@@ -104,11 +104,11 @@ pub fn use_006(ws: &Workspace) -> Vec<Violation> {
         .collect()
 }
 
-pub fn use_007(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_007(ws: &Workspace) -> Vec<Violation> {
     immutable_named(ws, "DCA-USE-007", "Result")
 }
 
-pub fn use_008(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_008(ws: &Workspace) -> Vec<Violation> {
     named_outside(
         ws,
         "DCA-USE-008",
@@ -133,9 +133,9 @@ fn reaches(ws: &Workspace, d: usize, pred: &dyn Fn(&super::Call) -> bool) -> BTr
         let before = hit.len();
         for m in &methods {
             if let Some(b) = m.block
-                && calls(b)
-                    .iter()
-                    .any(|c| c.self_field.is_none() && hit.contains(&c.method))
+                && calls(b).iter().any(|c| {
+                    c.self_field.is_none() && c.unit_accessor.is_none() && hit.contains(&c.method)
+                })
             {
                 hit.insert(m.name.clone());
             }
@@ -146,15 +146,13 @@ fn reaches(ws: &Workspace, d: usize, pred: &dyn Fn(&super::Call) -> bool) -> BTr
     }
 }
 
-pub fn use_009(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_009(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in use_cases(ws) {
         let roles = field_roles(ws, d);
-        let is = |c: &super::Call, role: &str| {
-            c.self_field
-                .as_ref()
-                .is_some_and(|f| roles.get(f).is_some_and(|r| r.contains(role)))
-        };
+        let unit = unit_roles(ws, d);
+        let is =
+            |c: &super::Call, role: &str| c.roles(&roles, &unit).is_some_and(|r| r.contains(role));
         let saves = reaches(ws, d, &|c| c.method == "save" && is(c, "Repository"));
         let publishes = reaches(ws, d, &|c| {
             c.method == "publish_and_clear_events" && is(c, "DomainEventPublisher")
@@ -209,21 +207,23 @@ fn dto_in(ws: &Workspace, rule: &'static str, layer: Layer) -> Vec<Violation> {
     out
 }
 
-pub fn use_010(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_010(ws: &Workspace) -> Vec<Violation> {
     dto_in(ws, "DCA-USE-010", Layer::Domain)
 }
 
-pub fn use_011(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_011(ws: &Workspace) -> Vec<Violation> {
     dto_in(ws, "DCA-USE-011", Layer::Application)
 }
 
-pub fn use_012(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_012(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in use_cases(ws) {
         let roles = field_roles(ws, d);
+        let unit = unit_roles(ws, d);
         let is_write = |c: &super::Call| {
-            let Some(f) = &c.self_field else { return false };
-            let Some(r) = roles.get(f) else { return false };
+            let Some(r) = c.roles(&roles, &unit) else {
+                return false;
+            };
             (r.contains("Repository") && matches!(c.method.as_str(), "save" | "delete_by_id"))
                 || (r.contains("DomainEventPublisher")
                     && matches!(c.method.as_str(), "publish" | "publish_and_clear_events"))
@@ -234,7 +234,10 @@ pub fn use_012(ws: &Workspace) -> Vec<Violation> {
         let mut outside: BTreeSet<String> = BTreeSet::new();
         for m in &methods {
             if let Some(b) = m.block {
-                for c in calls(b).iter().filter(|c| c.self_field.is_none()) {
+                for c in calls(b)
+                    .iter()
+                    .filter(|c| c.self_field.is_none() && c.unit_accessor.is_none())
+                {
                     if c.in_transaction {
                         inside.insert(c.method.clone());
                     } else {
@@ -251,7 +254,7 @@ pub fn use_012(ws: &Workspace) -> Vec<Violation> {
                 if !covered_helper {
                     out.push(at(ws, "DCA-USE-012", d, format!(
                         "`{}` calls `{}` on `{}` outside a transaction; run it inside TransactionBoundary::in_transaction",
-                        m.name, c.method, c.self_field.clone().unwrap_or_default()
+                        m.name, c.method, c.self_field.clone().or(c.unit_accessor.clone()).unwrap_or_default()
                     )));
                 }
             }
@@ -260,7 +263,7 @@ pub fn use_012(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn use_014(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_014(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for (k, c) in ws.crates.iter().enumerate() {
         if c.layer != Some(Layer::Application) {
@@ -269,13 +272,7 @@ pub fn use_014(ws: &Workspace) -> Vec<Violation> {
         let ucs: Vec<usize> = use_cases(ws)
             .into_iter()
             .filter(|d| ws.modules[ws.decls[*d].module].krate == k)
-            .filter(|d| {
-                ws.modules[ws.decls[*d].module]
-                    .path
-                    .first()
-                    .map(String::as_str)
-                    != Some("shared")
-            })
+            .filter(|d| !ws.in_shared(&ws.modules[ws.decls[*d].module].path))
             .collect();
         let depths: BTreeSet<usize> = ucs
             .iter()
@@ -304,7 +301,7 @@ pub fn use_014(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn use_015(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_015(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in ws.type_decls().filter(|d| {
         in_layer(ws, *d, Layer::Application)
@@ -344,7 +341,7 @@ pub fn use_015(ws: &Workspace) -> Vec<Violation> {
     out
 }
 
-pub fn use_016(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_016(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in use_cases(ws) {
         let own: BTreeSet<usize> = ws.implements[d]
@@ -354,31 +351,51 @@ pub fn use_016(ws: &Workspace) -> Vec<Violation> {
                 _ => None,
             })
             .collect();
-        for (f, targets) in field_targets(ws, d) {
-            for t in targets {
-                if !target_has_role(ws, &t, "InputPort") {
-                    continue;
-                }
-                if let Target::Decl(x) = t
-                    && (own.contains(&x) || x == d)
-                {
-                    continue;
-                }
-                if ws.building_block(&t).is_some() {
-                    continue;
-                }
+        let other_port = |t: &Target| {
+            target_has_role(ws, t, "InputPort")
+                && !matches!(t, Target::Decl(x) if own.contains(x) || *x == d)
+                && ws.building_block(t).is_none()
+        };
+        let dm = ws.decls[d].module;
+        let generics = super::type_and_impl_generics(ws, d);
+        for f in ws.fields(d) {
+            for t in ws
+                .type_targets(dm, f.ty, &generics)
+                .into_iter()
+                .filter(other_port)
+            {
                 out.push(at(ws, "DCA-USE-016", d, format!("use case `{}` holds the input port `{}` in `{}`; a use case does not call another", ws.decl_name(d), ws.target_name(&t), f.name)));
+            }
+        }
+        for m in ws.methods(d) {
+            let mut g = super::type_generics(ws, d);
+            g.extend(m.generics());
+            for p in m.params() {
+                for t in ws
+                    .type_targets(m.module, p, &g)
+                    .into_iter()
+                    .filter(other_port)
+                {
+                    out.push(at(ws, "DCA-USE-016", d, format!("use case `{}` takes the input port `{}` in `{}`; a use case does not call another", ws.decl_name(d), ws.target_name(&t), m.name)));
+                }
             }
         }
     }
     out
 }
 
-pub fn use_017(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_017(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in use_cases(ws) {
-        for m in ws.methods(d).into_iter().filter(|m| m.inherent && m.public) {
-            if !m.has_receiver() && m.returns_self() {
+        for m in super::own_methods(ws, d, true)
+            .into_iter()
+            .filter(|m| m.public)
+        {
+            if m.inherent && !m.has_receiver() && m.returns_self() {
+                continue;
+            }
+            // The operation of an input port the use case implements is its surface.
+            if super::workspace_trait(ws, &m).is_some_and(|t| ws.has_role(t, "InputPort")) {
                 continue;
             }
             out.push(at(
@@ -401,7 +418,7 @@ const WRITE_VERBS: &[&str] = &[
     "create", "append", "archive", "purge", "clear", "set", "mark",
 ];
 
-pub fn use_019(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_019(ws: &Workspace) -> Vec<Violation> {
     let mut out = vec![];
     for d in use_cases(ws) {
         let query = ws.methods(d).iter().any(|m| {
@@ -414,10 +431,11 @@ pub fn use_019(ws: &Workspace) -> Vec<Violation> {
             continue;
         }
         let roles = field_roles(ws, d);
+        let unit = unit_roles(ws, d);
         for m in ws.methods(d) {
             let Some(b) = m.block else { continue };
             for c in calls(b) {
-                let Some(r) = c.self_field.as_ref().and_then(|f| roles.get(f)) else {
+                let Some(r) = c.roles(&roles, &unit) else {
                     continue;
                 };
                 let write = (r.contains("Repository") || r.contains("Store"))
@@ -447,7 +465,7 @@ pub fn use_019(ws: &Workspace) -> Vec<Violation> {
 
 /// DCA-USE-021: a use case holds no state it changes - no `&mut self` method, no interior
 /// mutability in a field.
-pub fn use_021(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_021(ws: &Workspace) -> Vec<Violation> {
     ws.types_with_role("InputPort")
         .filter(|d| !ws.is_building_block_decl(*d))
         .flat_map(|d| immutability(ws, "DCA-USE-021", d, "use case", false))
@@ -488,7 +506,7 @@ fn primitive(ty: &syn::Type) -> Option<String> {
 /// DCA-USE-022: a use case answers with a result type, not a bare primitive - the `Output` of an
 /// `impl UseCase<I>` block or of a trait's `UseCase<I, Output = ..>` bound, or the success type of
 /// the `Result` it names.
-pub fn use_022(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_022(ws: &Workspace) -> Vec<Violation> {
     let is_use_case = |t: &Option<Target>| {
         t.as_ref()
             .is_some_and(|t| ws.building_block(t).as_deref() == Some("UseCase"))
@@ -557,7 +575,7 @@ pub fn use_022(ws: &Workspace) -> Vec<Violation> {
 
 /// Whether an input-port trait takes a command: the input of a `UseCase<..>` bound, or a parameter
 /// of one of its methods, is a type whose name ends with `Command`.
-fn takes_command(ws: &Workspace, d: usize) -> bool {
+pub(crate) fn takes_command(ws: &Workspace, d: usize) -> bool {
     let syn::Item::Trait(t) = ws.item(d) else {
         return false;
     };
@@ -583,12 +601,12 @@ fn takes_command(ws: &Workspace, d: usize) -> bool {
 /// A feature is the top-level module of an application crate that groups use cases
 /// (`application::<feature>::<use_case>`); an input port declared at that depth or below belongs to
 /// it, one declared directly in a top-level module to none.
-pub fn use_018(ws: &Workspace) -> Vec<Violation> {
+pub(super) fn use_018(ws: &Workspace) -> Vec<Violation> {
     let feature_of = |d: usize| -> Option<String> {
         let p = &ws.modules[ws.decls[d].module].path;
         (in_layer(ws, d, Layer::Application)
             && p.len() >= 2
-            && p[0] != "shared"
+            && !ws.in_shared(p)
             && ws.has_role(d, "InputPort")
             && takes_command(ws, d))
         .then(|| p[0].clone())

@@ -1,4 +1,4 @@
-# docker compose run --rm test       → cargo test --workspace against the mounted checkout
+# docker compose run --rm test       → cargo test --workspace against the mounted checkout, then in example/
 # docker compose run --rm build      → cargo build --workspace --all-targets
 # docker compose --profile ci build  → CI-style check: the image builds only if everything is green
 # podman-compose does not activate a service's profile on `run`: `podman-compose --profile tools run --rm test`.
@@ -10,8 +10,8 @@ services:
     volumes:
       - .:/workspace
       - cargo-registry:/usr/local/cargo/registry
-    entrypoint: ["cargo"]
-    command: ["test", "--workspace"]
+    entrypoint: ["sh", "-c"]
+    command: ["cargo test --workspace && cd example && cargo test --workspace"]
 
   build:
     image: docker.io/library/rust:1-bookworm
