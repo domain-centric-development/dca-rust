@@ -85,8 +85,6 @@ None of these breaks a user; add them when a consumer asks.
 - A satellite crate `dca-memory`: the transaction boundary, outbox, relay and inbox over memory that the example
   builds in its kernel adapters, for tests and small programs. Not in the building blocks: the relay needs an async
   runtime, and the building blocks stay without dependencies.
-- `Timestamp` with nanoseconds (`from_unix_nanos`, `as_unix_nanos`) and conversions from and to `SystemTime`. The
-  field is private; the millisecond API stays.
 - Combinators for `Specification` (`and`, `or`, `not`) as provided methods.
 - A `prelude` module.
 - `#![no_std]` with `alloc`: `std::error::Error` and `core::error::Error` are the same trait.

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use dca_building_blocks::ddd::tactical::{EventId, Timestamp};
 use dca_building_blocks::hexagonal::port_out::OutputPort;
@@ -16,12 +16,7 @@ impl OutputPort for SystemClock {}
 
 impl Clock for SystemClock {
     fn now(&self) -> Timestamp {
-        let millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| {
-                i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
-            });
-        Timestamp::from_unix_millis(millis)
+        Timestamp::from(SystemTime::now())
     }
 }
 

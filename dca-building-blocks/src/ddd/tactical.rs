@@ -196,21 +196,101 @@ impl EventId {
 impl Value for EventId {}
 impl Id for EventId {}
 
-/// A point in time, milliseconds since the Unix epoch, UTC.
+/// A point in time on the UTC time line: seconds since the Unix epoch and the nanoseconds within the
+/// second, the precision of Java's `Instant`.
 ///
-/// The domain receives it as a value; it never reads a clock itself.
+/// The domain receives it as a value; it never reads a clock itself. An adapter's clock converts
+/// the operating system's time with `Timestamp::from(SystemTime::now())`.
+///
+/// ```
+/// use dca_building_blocks::ddd::tactical::Timestamp;
+///
+/// let t = Timestamp::from_unix(1_700_000_000, 250_000_000);
+/// assert_eq!(t.as_unix_millis(), 1_700_000_000_250);
+/// assert_eq!(Timestamp::from_unix_millis(-1).subsec_nanos(), 999_000_000);
+/// assert!(Timestamp::from_unix_millis(1) > Timestamp::from_unix(0, 999_999));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Timestamp(i64);
+pub struct Timestamp {
+    seconds: i64,
+    nanos: u32,
+}
+
+const NANOS_PER_SECOND: u32 = 1_000_000_000;
 
 impl Timestamp {
-    /// A timestamp from milliseconds since the Unix epoch.
-    pub const fn from_unix_millis(millis: i64) -> Self {
-        Self(millis)
+    /// A timestamp from seconds since the Unix epoch and the nanoseconds within that second.
+    ///
+    /// # Panics
+    ///
+    /// When `nanos` is a second or more.
+    pub const fn from_unix(seconds: i64, nanos: u32) -> Self {
+        assert!(
+            nanos < NANOS_PER_SECOND,
+            "nanos within a second are below 1_000_000_000"
+        );
+        Self { seconds, nanos }
     }
 
-    /// Milliseconds since the Unix epoch.
+    /// A timestamp from milliseconds since the Unix epoch.
+    pub const fn from_unix_millis(millis: i64) -> Self {
+        Self {
+            seconds: millis.div_euclid(1000),
+            nanos: millis.rem_euclid(1000) as u32 * 1_000_000,
+        }
+    }
+
+    /// Whole seconds since the Unix epoch, rounded down.
+    pub const fn unix_seconds(&self) -> i64 {
+        self.seconds
+    }
+
+    /// The nanoseconds within the second.
+    pub const fn subsec_nanos(&self) -> u32 {
+        self.nanos
+    }
+
+    /// Milliseconds since the Unix epoch, rounded down.
     pub const fn as_unix_millis(&self) -> i64 {
-        self.0
+        self.seconds * 1000 + (self.nanos / 1_000_000) as i64
+    }
+}
+
+impl From<std::time::SystemTime> for Timestamp {
+    fn from(time: std::time::SystemTime) -> Self {
+        match time.duration_since(std::time::UNIX_EPOCH) {
+            Ok(since) => Self {
+                seconds: i64::try_from(since.as_secs()).unwrap_or(i64::MAX),
+                nanos: since.subsec_nanos(),
+            },
+            Err(before) => {
+                let before = before.duration();
+                let seconds = i64::try_from(before.as_secs()).unwrap_or(i64::MAX);
+                match before.subsec_nanos() {
+                    0 => Self {
+                        seconds: -seconds,
+                        nanos: 0,
+                    },
+                    n => Self {
+                        seconds: -seconds - 1,
+                        nanos: NANOS_PER_SECOND - n,
+                    },
+                }
+            }
+        }
+    }
+}
+
+impl From<Timestamp> for std::time::SystemTime {
+    fn from(t: Timestamp) -> Self {
+        let epoch = std::time::UNIX_EPOCH;
+        let whole = std::time::Duration::from_secs(t.seconds.unsigned_abs());
+        let within = std::time::Duration::from_nanos(u64::from(t.nanos));
+        if t.seconds >= 0 {
+            epoch + whole + within
+        } else {
+            epoch - whole + within
+        }
     }
 }
 
@@ -302,7 +382,8 @@ pub trait DomainFailure: std::error::Error {}
 
 #[cfg(test)]
 mod tests {
-    use super::DomainEvents;
+    use super::{DomainEvents, Timestamp};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn records_in_order_and_shows_what_it_holds() {
@@ -339,5 +420,19 @@ mod tests {
         struct Plain;
         let events: DomainEvents<Plain> = DomainEvents::default();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn a_timestamp_keeps_nanoseconds_and_converts_to_system_time_both_ways() {
+        for t in [
+            Timestamp::from_unix(1_700_000_000, 123_456_789),
+            Timestamp::from_unix(-5, 1),
+            Timestamp::from_unix(-5, 0),
+            Timestamp::from_unix_millis(-1),
+        ] {
+            assert_eq!(Timestamp::from(SystemTime::from(t)), t);
+        }
+        let before = UNIX_EPOCH - Duration::from_millis(1500);
+        assert_eq!(Timestamp::from(before), Timestamp::from_unix_millis(-1500));
     }
 }
