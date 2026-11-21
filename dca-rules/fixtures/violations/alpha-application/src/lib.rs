@@ -222,6 +222,7 @@ pub mod mend {
 /// DCA-ERR-010: a port's failure answered without naming it.
 pub mod keep_thing {
     use alpha_domain::Thing;
+    use dca_building_blocks::hexagonal::port_out::PortError;
 
     use crate::WrongRepository;
 
@@ -244,6 +245,30 @@ pub mod keep_thing {
                 other => {
                     drop(other);
                     false
+                }
+            }
+        }
+
+        /// Cleans up, then hands on something else than what it caught: the failure is answered.
+        pub async fn keep_or_wrap(&mut self, thing: &Thing) -> Result<(), String> {
+            match self.things.save(thing).await {
+                Ok(()) => Ok(()),
+                other => {
+                    drop(thing.clone());
+                    other.map_err(|e| e.to_string())
+                }
+            }
+        }
+
+        /// Hands it on in one exit, swallows it in the other.
+        pub async fn keep_or_pretend(&mut self, thing: &Thing, strict: bool) -> Result<(), PortError> {
+            match self.things.save(thing).await {
+                Ok(()) => Ok(()),
+                other => {
+                    if strict {
+                        return other;
+                    }
+                    Ok(())
                 }
             }
         }

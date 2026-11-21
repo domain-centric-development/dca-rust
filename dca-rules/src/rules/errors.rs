@@ -549,6 +549,79 @@ fn unnamed_err_arm(p: &syn::Pat, err_named_before: bool) -> Option<String> {
     None
 }
 
+/// Whether a catch-all arm only cleans up and hands what it caught on unchanged: its pattern is a
+/// bare binding (`other`) and every exit of its body - the tail, each `return` - is that binding
+/// itself, not converted, wrapped or replaced. Such an arm does not answer the failure.
+fn hands_on(p: &syn::Pat, body: &syn::Expr) -> bool {
+    let name = match p {
+        syn::Pat::Ident(i) if i.subpat.is_none() && i.by_ref.is_none() => i.ident.to_string(),
+        syn::Pat::Paren(p) => return hands_on(&p.pat, body),
+        syn::Pat::Type(t) => return hands_on(&t.pat, body),
+        _ => return false,
+    };
+    let mut returns = Returns {
+        name: &name,
+        all_hand_on: true,
+    };
+    syn::visit::Visit::visit_expr(&mut returns, body);
+    returns.all_hand_on && tail_hands_on(body, &name)
+}
+
+/// Whether an expression is the binding `name` itself, under parentheses.
+fn is_binding(e: &syn::Expr, name: &str) -> bool {
+    match e {
+        syn::Expr::Paren(p) => is_binding(&p.expr, name),
+        syn::Expr::Path(p) => p.qself.is_none() && p.path.is_ident(name),
+        _ => false,
+    }
+}
+
+/// Whether every way an expression ends hands on the binding `name`: the binding itself, a
+/// `return` (checked by [`Returns`]), or a block, `if` with `else` or `match` whose branches do.
+fn tail_hands_on(e: &syn::Expr, name: &str) -> bool {
+    match e {
+        syn::Expr::Return(_) => true,
+        syn::Expr::Paren(p) => tail_hands_on(&p.expr, name),
+        syn::Expr::Block(b) => block_hands_on(&b.block, name),
+        syn::Expr::Unsafe(b) => block_hands_on(&b.block, name),
+        syn::Expr::If(i) => {
+            block_hands_on(&i.then_branch, name)
+                && i.else_branch
+                    .as_ref()
+                    .is_some_and(|(_, e)| tail_hands_on(e, name))
+        }
+        syn::Expr::Match(m) => m.arms.iter().all(|a| tail_hands_on(&a.body, name)),
+        _ => is_binding(e, name),
+    }
+}
+
+fn block_hands_on(b: &syn::Block, name: &str) -> bool {
+    match b.stmts.last() {
+        Some(syn::Stmt::Expr(e, None)) => tail_hands_on(e, name),
+        Some(syn::Stmt::Expr(e @ syn::Expr::Return(_), Some(_))) => tail_hands_on(e, name),
+        _ => false,
+    }
+}
+
+/// Whether every `return` of an arm's body - closures, async blocks and nested items left out,
+/// their `return` is not the arm's - hands on the binding `name`.
+struct Returns<'n> {
+    name: &'n str,
+    all_hand_on: bool,
+}
+
+impl<'ast> syn::visit::Visit<'ast> for Returns<'_> {
+    fn visit_expr_return(&mut self, r: &'ast syn::ExprReturn) {
+        if !r.expr.as_deref().is_some_and(|e| is_binding(e, self.name)) {
+            self.all_hand_on = false;
+        }
+        syn::visit::visit_expr_return(self, r);
+    }
+    fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+    fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
+    fn visit_item(&mut self, _: &'ast syn::Item) {}
+}
+
 /// Whether an arm's pattern takes the failure in hand: `Err(e)`.
 fn names_err(p: &syn::Pat) -> bool {
     cases(p).into_iter().any(|c| {
@@ -727,7 +800,9 @@ impl<'ast> syn::visit::Visit<'ast> for PortAnswers<'_> {
         if let Some(call) = self.port_call(&e.expr) {
             let mut err_named = false;
             for arm in &e.arms {
-                if let Some(how) = unnamed_err_arm(&arm.pat, err_named) {
+                if let Some(how) = unnamed_err_arm(&arm.pat, err_named)
+                    && !hands_on(&arm.pat, &arm.body)
+                {
                     self.note(arm.pat.span().start().line, call.clone(), how);
                 }
                 err_named |= names_err(&arm.pat) && arm.guard.is_none();

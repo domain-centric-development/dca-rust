@@ -105,3 +105,30 @@ pub async fn count_found<R: ThingRepository>(
     }
     Ok(count + usize::from(found?.is_some()))
 }
+
+/// A catch-all arm that only cleans up and hands what it caught on unchanged does not answer the
+/// failure (DCA-ERR-010): every exit, the tail and each `return`, is the binding itself.
+pub async fn look_up_or_undo<R: ThingRepository>(
+    things: &mut R,
+    keeper: &KeeperId,
+    id: &ThingId,
+    undo: impl Fn(),
+) -> Result<Option<Thing>, PortError> {
+    let first = match things.find_by_id_for_keeper(keeper, id).await {
+        Ok(Some(thing)) => Some(thing),
+        other => {
+            undo();
+            return other;
+        }
+    };
+    match things.find_by_id_for_keeper(keeper, id).await {
+        Ok(found) => Ok(found.or(first)),
+        caught => {
+            if first.is_some() {
+                return caught;
+            }
+            undo();
+            caught
+        }
+    }
+}

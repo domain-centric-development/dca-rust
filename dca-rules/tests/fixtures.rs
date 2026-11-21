@@ -284,13 +284,27 @@ fn a_domain_service_is_used_by_the_application_only() {
 }
 
 /// DCA-ERR-010: `let _ =`, an `Err(_)` arm, a catch-all binding arm, `.is_ok()`, `if let Ok(..)` and `catch_unwind` around a port call are
-/// reported; `?` after a `map_err` that uses the failure and an `Err(e)` arm are not.
+/// reported, a catch-all binding arm that hands on something else in one of its exits as well;
+/// `?` after a `map_err` that uses the failure and an `Err(e)` arm are not, nor a catch-all
+/// binding arm that hands what it caught on unchanged (the conforming fixture).
 #[test]
 fn a_port_failure_is_answered_by_name() {
     let found = violations(&fixture("violations"), "DCA-ERR-010");
     let has = |text: &str| found.iter().any(|line| line.contains(text));
-    // Ten here, three more through locals (`ports_and_results_are_followed_through_locals`).
-    assert_eq!(found.len(), 13, "{found:?}");
+    // Twelve here, three more through locals (`ports_and_results_are_followed_through_locals`).
+    assert_eq!(found.len(), 15, "{found:?}");
+    assert!(
+        has(
+            "`keep_or_wrap` answers the failure of the port call `self.things.save` with a catch-all arm"
+        ),
+        "{found:?}"
+    );
+    assert!(
+        has(
+            "`keep_or_pretend` answers the failure of the port call `self.things.save` with a catch-all arm"
+        ),
+        "{found:?}"
+    );
     assert!(
         has(
             "`keep_or_drop` answers the failure of the port call `self.things.save` with a catch-all arm"
@@ -844,7 +858,7 @@ fn ports_and_results_are_followed_through_locals() {
         );
     }
     assert!(!err.iter().any(|l| l.contains("`settle`")), "{err:?}");
-    assert_eq!(err.len(), 13, "{err:?}");
+    assert_eq!(err.len(), 15, "{err:?}");
     assert!(
         has("DCA-HEX-021", "`rebuild` calls `rebuilt.parts_mut`"),
         "{:?}",
