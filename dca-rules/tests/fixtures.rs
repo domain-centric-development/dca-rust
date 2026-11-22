@@ -1,7 +1,8 @@
 //! Every implemented rule fires on the fixtures, and the roles the rules select by are found.
 //!
 //! `fixtures/violations` holds at least one violation per rule; `fixtures/undeclared` is a workspace
-//! without a context or a layer; `fixtures/empty` one without production code;
+//! without a context or a layer; `fixtures/empty` one without production code, `fixtures/entry-point`
+//! one whose only code is a generated `fn main` (`fixtures/entry-point-plus` with a struct beside it);
 //! `fixtures/conforming` follows every rule. None is ever built.
 
 use std::path::PathBuf;
@@ -57,6 +58,28 @@ fn a_workspace_without_production_code_passes_the_declaration_guards() {
         assert!(
             !violations(&undeclared, id).is_empty(),
             "{id} silent on fixtures/undeclared"
+        );
+    }
+}
+
+/// The binary `cargo new` writes is a program entry point, no production code: the whole suite is
+/// green on it. One struct beside `fn main` and both guards fire.
+#[test]
+fn a_generated_binary_is_no_production_code() {
+    let ws = fixture("entry-point");
+    let found: Vec<String> = rules::implemented()
+        .flat_map(|id| violations(&ws, id))
+        .collect();
+    assert!(
+        found.is_empty(),
+        "findings on a generated binary:\n{}",
+        found.join("\n")
+    );
+    let plus = fixture("entry-point-plus");
+    for id in ["DCA-STR-011", "DCA-STR-012"] {
+        assert!(
+            !violations(&plus, id).is_empty(),
+            "{id} silent beside a real type"
         );
     }
 }

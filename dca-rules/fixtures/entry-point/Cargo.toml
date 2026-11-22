@@ -1,0 +1,8 @@
+# Never built: the binary `cargo new` writes - fn main and nothing else - beside the crate that runs the
+# architecture tests. The rule suite reads it and finds nothing: the workspace holds no production code yet.
+[workspace]
+resolver = "3"
+members = ["app", "arch-tests"]
+
+[workspace.metadata.dca]
+experimental = "all"

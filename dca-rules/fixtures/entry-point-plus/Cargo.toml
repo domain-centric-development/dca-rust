@@ -1,0 +1,8 @@
+# Never built: the binary `cargo new` writes and one struct beside fn main. The workspace holds production
+# code, so DCA-STR-011 and DCA-STR-012 find the missing declarations.
+[workspace]
+resolver = "3"
+members = ["app", "arch-tests"]
+
+[workspace.metadata.dca]
+experimental = "all"

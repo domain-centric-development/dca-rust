@@ -89,6 +89,8 @@ pub struct Crate {
     pub metadata: serde_json::Value,
     /// The crate's root module, if it has a library or binary target.
     pub root: Option<usize>,
+    /// The root module is a binary target's: the crate has no library target.
+    pub binary: bool,
     /// The context-map declarations in its `[package.metadata.dca]`.
     pub map: ContextMap,
 }
@@ -673,6 +675,7 @@ impl Workspace {
                 map: ContextMap::from_json(&dca),
                 metadata: dca,
                 root: None,
+                binary: target.is_some_and(|t| !t.is_lib()),
             });
             if let Some(t) = target {
                 let src = t.src_path.clone().into_std_path_buf();

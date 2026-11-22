@@ -224,10 +224,23 @@ pub(super) fn str_006(ws: &Workspace) -> Vec<Violation> {
 }
 
 /// Whether any workspace crate holds production code: an item outside `#[cfg(test)]` in the module
-/// tree of its library or binary target. A crate with test targets only, or whose library root holds
-/// nothing but comments and test modules (a crate that runs the architecture tests), holds none.
+/// tree of its library or binary target that is not a program entry point. A crate with test targets
+/// only, or whose library root holds nothing but comments and test modules (a crate that runs the
+/// architecture tests), holds none; nor does a binary crate whose only item is `fn main`.
 fn holds_production_code(ws: &Workspace) -> bool {
-    ws.modules.iter().any(|m| !m.items.is_empty())
+    ws.modules
+        .iter()
+        .any(|m| !m.items.is_empty() && !is_entry_point(ws, m))
+}
+
+/// The root module of a binary target - a crate without a library target - whose only item outside
+/// `#[cfg(test)]` is `fn main` and which declares no module: the program entry point a project
+/// generator writes before any production code exists.
+fn is_entry_point(ws: &Workspace, m: &crate::model::Module) -> bool {
+    ws.crates[m.krate].binary
+        && m.parent.is_none()
+        && m.children.is_empty()
+        && matches!(m.items.as_slice(), [syn::Item::Fn(f)] if f.sig.ident == "main")
 }
 
 /// DCA-STR-011: at least one crate declares a context, once the workspace holds production code.
