@@ -80,8 +80,8 @@ traits become dyn-compatible (the 2026 goal "native async fn dynamic dispatch"),
 None of these breaks a user; add them when a consumer asks.
 
 - More `PortErrorKind`s (a timeout, for instance) when a caller has to tell one apart: the enum is
-  `#[non_exhaustive]`. A conflict is not one: the caller can answer it, so the port declares it as an
-  `OutputPortFailure`.
+  `#[non_exhaustive]`. A conflict of the domain the caller answers — a uniqueness only the store sees — is not one:
+  the port declares it as an `OutputPortFailure`.
 - A satellite crate `dca-memory`: the transaction boundary, outbox, relay and inbox over memory that the example
   builds in its kernel adapters, for tests and small programs. Not in the building blocks: the relay needs an async
   runtime, and the building blocks stay without dependencies.
@@ -96,7 +96,11 @@ None of these breaks a user; add them when a consumer asks.
 - `DomainEvents<E>` exists (2026-11-20): the counterpart of Java's `BaseAggregateRoot`, a field an aggregate root
   records its events in and delegates `domain_events` and `take_domain_events` to.
 - `PortError::kind()` exists (2026-11-20), with the `#[non_exhaustive]` `PortErrorKind` — `Unavailable` (`new`,
-  `caused_by`) and `RollbackFailed` (`rollback_failed`). A conflict stays an `OutputPortFailure`.
+  `caused_by`) and `RollbackFailed` (`rollback_failed`).
+- `PortErrorKind::Conflict` exists (2026-11-22, `PortError::conflict`): a save refused because the aggregate changed
+  since it was read — optimistic concurrency, the same technical event for every repository, so a kind of port error
+  the caller reads; `Repository::save` keeps its signature. A conflict of the domain (a uniqueness) stays an
+  `OutputPortFailure` the port declares.
 
 ## Fixed — changing these is a breaking change
 

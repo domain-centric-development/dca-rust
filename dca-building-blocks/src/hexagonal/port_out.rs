@@ -26,6 +26,9 @@ pub trait OutputPort {}
 /// let lost = PortError::rollback_failed(down);
 /// assert_eq!(lost.kind(), PortErrorKind::RollbackFailed);
 /// assert!(std::error::Error::source(&lost).is_some());
+///
+/// let stale = PortError::conflict("the thing changed since it was read");
+/// assert_eq!(stale.kind(), PortErrorKind::Conflict);
 /// ```
 #[derive(Debug)]
 pub struct PortError {
@@ -47,6 +50,10 @@ pub enum PortErrorKind {
     /// The work of a transaction failed and its rollback failed too: what the store holds is no
     /// longer known.
     RollbackFailed,
+    /// A save was refused because what it read is no longer what the store holds: another save of
+    /// the same aggregate came first (optimistic concurrency). Nothing was written; the caller loads
+    /// the aggregate again and decides.
+    Conflict,
 }
 
 impl PortError {
@@ -66,6 +73,17 @@ impl PortError {
         Self {
             kind: PortErrorKind::RollbackFailed,
             ..Self::caused_by("the transaction failed and could not be rolled back", cause)
+        }
+    }
+
+    /// A save refused because the aggregate changed since it was read, of the kind
+    /// [`PortErrorKind::Conflict`]: the same technical event for every repository, so it is a kind of
+    /// port error, not a failure each port declares.
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            kind: PortErrorKind::Conflict,
+            message: message.into(),
+            source: None,
         }
     }
 
@@ -122,7 +140,8 @@ pub trait Repository<T: AggregateRoot>: OutputPort {
         id: &T::Id,
     ) -> impl Future<Output = Result<Option<T>, PortError>> + Send;
 
-    /// Saves the aggregate's current state.
+    /// Saves the aggregate's current state. A save whose aggregate changed in the store since it was
+    /// read is refused with a [`PortError`] of the kind [`PortErrorKind::Conflict`], nothing written.
     fn save(&mut self, aggregate: &T) -> impl Future<Output = Result<(), PortError>> + Send;
 
     /// Removes the aggregate with this identity.

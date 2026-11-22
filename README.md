@@ -143,9 +143,11 @@ the port as `dyn`); written as an `async fn`, the compiler cannot yet prove such
 The failure type of the work takes a `PortError` (`E: From<PortError>`): a transaction that cannot begin or commit ends
 in the use case's "unavailable" case. A rollback that fails after the work failed is reported in place of the work's
 failure (`PortError::rollback_failed`, of the kind `PortErrorKind::RollbackFailed`): what the store holds is then no
-longer known, and that outweighs the failure that asked for the rollback. A `PortError` is the system's own
-infrastructure failing; a failure the caller can answer — a conflict, a uniqueness only the store sees — is an
-`OutputPortFailure` the port declares.
+longer known, and that outweighs the failure that asked for the rollback. A save refused because the aggregate
+changed since it was read — optimistic concurrency, the same for every repository — is a `PortError` of the kind
+`PortErrorKind::Conflict` (`PortError::conflict`): nothing was written, and the caller loads again and decides. Any
+other `PortError` is the system's own infrastructure failing; a failure of the domain the caller can answer — a
+uniqueness only the store sees — is an `OutputPortFailure` the port declares.
 
 The aggregate and its events are stored in the same transaction; another transaction reads an event back and reacts
 to it. The event publisher the unit hands out calls the listeners that react inside the transaction
