@@ -238,6 +238,7 @@ shared-module = "shared"               # the shared output ports of an applicati
 web-module = "web"                     # server-rendered adapters below the incoming module
 event-consumer-module = "event"        # event consumers below the incoming module
 operation-containers = []              # application modules that only group operations
+use-case-grouping = "consistent"       # DCA-USE-014: consistent (flat or by feature), feature, or flat
 use-case-suffix = "UseCase"
 input-port-suffix = "InputPort"
 aggregate-root-suffix = "AggregateRoot"

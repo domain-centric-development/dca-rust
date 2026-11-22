@@ -22,7 +22,7 @@ pub mod rules;
 use std::path::Path;
 use std::sync::OnceLock;
 
-pub use model::{Layer, Target, Workspace};
+pub use model::{Layer, Target, UseCaseGrouping, Workspace};
 
 /// One finding of a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]

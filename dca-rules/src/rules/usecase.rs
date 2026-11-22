@@ -7,7 +7,7 @@ use super::{
     unit_roles, use_cases,
 };
 use crate::Violation;
-use crate::model::{DeclKind, Layer, Target, Workspace};
+use crate::model::{DeclKind, Layer, Target, UseCaseGrouping, Workspace};
 
 pub(super) fn use_001(ws: &Workspace) -> Vec<Violation> {
     ws.trait_decls()
@@ -284,7 +284,30 @@ pub(super) fn use_014(ws: &Workspace) -> Vec<Violation> {
                 out.push(at(ws, "DCA-USE-014", *d, format!("use case `{}` sits at module depth {depth}; use application::<use_case> or application::<feature>::<use_case>", ws.decl_name(*d))));
             }
         }
-        if depths.contains(&1) && depths.contains(&2) {
+        let wanted = match ws.config.use_case_grouping {
+            UseCaseGrouping::Consistent => None,
+            UseCaseGrouping::Feature => Some((
+                2,
+                "the crate groups its use cases by feature; use application::<feature>::<use_case>",
+            )),
+            UseCaseGrouping::Flat => Some((
+                1,
+                "the crate keeps its use cases flat; use application::<use_case>",
+            )),
+        };
+        if let Some((want, why)) = wanted {
+            for d in &ucs {
+                let depth = ws.modules[ws.decls[*d].module].path.len();
+                if depth != want && (1..=2).contains(&depth) {
+                    out.push(at(
+                        ws,
+                        "DCA-USE-014",
+                        *d,
+                        format!("use case `{}`: {why}", ws.decl_name(*d)),
+                    ));
+                }
+            }
+        } else if depths.contains(&1) && depths.contains(&2) {
             for d in &ucs {
                 out.push(at(
                     ws,

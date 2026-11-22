@@ -1103,3 +1103,22 @@ fn no_rule_finds_anything_in_a_workspace_without_production_code() {
         found.join("\n")
     );
 }
+
+/// DCA-USE-014 with `use-case-grouping`: `feature` reports a use case directly below the crate,
+/// `flat` one inside a feature; the conforming fixture keeps its use cases flat, so `consistent`,
+/// the default, and `flat` let it pass.
+#[test]
+fn use_case_grouping_makes_one_depth_mandatory() {
+    let mut ws = fixture("conforming");
+    assert!(violations(&ws, "DCA-USE-014").is_empty());
+    ws.config.use_case_grouping = dca_rules::UseCaseGrouping::Feature;
+    let feature = violations(&ws, "DCA-USE-014");
+    assert!(
+        feature
+            .iter()
+            .any(|v| v.contains("AddPart") && v.contains("by feature")),
+        "{feature:?}"
+    );
+    ws.config.use_case_grouping = dca_rules::UseCaseGrouping::Flat;
+    assert!(violations(&ws, "DCA-USE-014").is_empty());
+}

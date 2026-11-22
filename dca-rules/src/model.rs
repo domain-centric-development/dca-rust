@@ -302,10 +302,25 @@ pub struct Config {
     /// feature themselves (Java's `withOperationContainers`): DCA-CYC-005 skips them when it
     /// names a slice. Empty by default.
     pub operation_containers: BTreeSet<String>,
+    /// `use-case-grouping`: how DCA-USE-014 holds the use cases of an application crate —
+    /// `consistent` (flat or grouped by feature, one depth per crate) by default, `feature`
+    /// (every use case in a feature module) or `flat`.
+    pub use_case_grouping: UseCaseGrouping,
     /// The module names the suite places by (Java's `with…Subpackage`).
     pub modules: Modules,
     /// The name suffixes the suite selects by (Java's `with…Suffix`).
     pub suffixes: Suffixes,
+}
+
+/// How the use cases of an application crate are grouped (`use-case-grouping`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseCaseGrouping {
+    /// Flat or grouped by feature, one depth per crate.
+    Consistent,
+    /// Every use case in a feature module: `application::<feature>::<use_case>`.
+    Feature,
+    /// Every use case directly below the crate: `application::<use_case>`.
+    Flat,
 }
 
 /// The module names inside a layer crate, from `[workspace.metadata.dca]`. Each is one identifier.
@@ -451,6 +466,16 @@ impl Config {
             ),
             error_derives: list("error-derives", &["thiserror::Error"]),
             operation_containers: list("operation-containers", &[]),
+            use_case_grouping: match v.get("use-case-grouping").and_then(|x| x.as_str()) {
+                None | Some("consistent") => UseCaseGrouping::Consistent,
+                Some("feature") => UseCaseGrouping::Feature,
+                Some("flat") => UseCaseGrouping::Flat,
+                Some(other) => {
+                    return Err(format!(
+                        "[workspace.metadata.dca] use-case-grouping is \"{other}\"; it is consistent, feature or flat"
+                    ));
+                }
+            },
             modules: Modules {
                 incoming: name("incoming-module", "incoming")?,
                 outgoing: name("outgoing-module", "outgoing")?,
