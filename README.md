@@ -38,7 +38,9 @@ by layer — its domain on the kernel's domain, its application on the kernel's 
 all of it — and the kernel depends on no context (DCA-STR-002). A shared outbox is the kernel's outgoing adapter.
 
 **The application layer is asynchronous; the domain is synchronous, except where it asks the outside.** The input
-ports, the output ports and the transaction boundary return futures that are `Send`.
+ports, the output ports that do I/O - repositories, stores, the event publishers - and the transaction boundary return
+futures that are `Send`; an in-process provider such as a clock or an id source does no I/O and may stay synchronous
+(DCA-RS-008, experimental, reads it for the ports with I/O and keeps an executor out of the application crates).
 There is one form of each port: an adapter over a database implements them as the database's driver allows, and an
 adapter over memory or files implements the same ports — its work done inline when it is quick, behind the runtime's
 blocking pool (`spawn_blocking`) when it is not. A project that swaps its store later swaps an adapter, nothing else.

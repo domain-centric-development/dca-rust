@@ -2621,6 +2621,22 @@
         "source-test"
       ],
       "implemented": true
+    },
+    {
+      "set": "rust",
+      "id": "DCA-RS-008",
+      "title": "A port with I/O answers asynchronously, and the application drives no future",
+      "rationale": "In Rust the async boundary lives in the building blocks: a port that does I/O - a database, a file system, a queue behind it - answers with a future, std only, and a program that is synchronous drives the use case with a small executor from outside the application. Such a port answering synchronously fixes its adapters to blocking I/O and cannot be swapped for one that waits; an executor inside the application hides where the program blocks. An in-process provider such as a clock or an id source does no I/O and may stay synchronous.",
+      "selects": "Traits declared in an application crate that carry the building-block role of a port with I/O - Repository, Store, DomainEventPublisher or IntegrationEventPublisher (an outbox sits behind the publisher or a store) - the building blocks' own excluded, and traits that carry the DomainGateway or the DomainService role excepted; and the paths every module of an application crate names. A plain OutputPort without one of those roles is not selected: a clock or an id source stays synchronous, and a plain output port that does I/O is not seen unless it carries one of the roles.",
+      "checks": "Every method a selected trait declares is async fn or returns a future: a type that names Future (impl Future, dyn Future, Pin<Box<dyn Future>>), BoxFuture or ScopedBoxFuture, or an associated type of the trait bounded by one of them. A method that returns a plain value, a Result or nothing is reported with the trait and the method. No module of an application crate names a hand-built waker (std::task::Waker, RawWaker, Wake, RawWakerVTable, Context::from_waker), tokio::runtime, or the block_on and executor items of futures, futures-executor, futures-lite, pollster, async-std or smol. Only resolved paths are read: a block_on called as a method on a runtime value the module does not name is not seen. An empty selection passes.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
     }
   ]
 }

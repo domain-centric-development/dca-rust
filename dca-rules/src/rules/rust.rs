@@ -266,3 +266,111 @@ pub(super) fn rs_007(ws: &Workspace) -> Vec<Violation> {
     }
     out
 }
+
+/// Future types a port method may answer with: std's `Future` (through `impl Future`, `dyn
+/// Future` or a `Pin<Box<..>>`) and the building blocks' boxed futures.
+const FUTURES: &[&str] = &["Future", "BoxFuture", "ScopedBoxFuture"];
+
+/// Items that drive a future to completion: a waker built by hand, or a known runtime's
+/// `block_on` and runtime types. Read from resolved paths only.
+fn drives_futures(krate: &str, path: &[String]) -> bool {
+    match krate {
+        "std" | "core" | "alloc" => {
+            path.first().is_some_and(|p| p == "task")
+                && path.iter().any(|p| {
+                    matches!(
+                        p.as_str(),
+                        "Waker" | "RawWaker" | "Wake" | "RawWakerVTable" | "from_waker"
+                    )
+                })
+        }
+        "tokio" => path.first().is_some_and(|p| p == "runtime"),
+        "futures" | "futures_executor" | "futures_lite" | "pollster" | "async_std" | "smol" => {
+            path.iter().any(|p| p == "block_on" || p == "executor")
+        }
+        _ => false,
+    }
+}
+
+/// The building-block roles of the ports that do I/O: a database, a file system, a queue behind them.
+/// A plain output port - a clock, an id source - is an in-process provider and may stay synchronous.
+const IO_PORTS: &[&str] = &[
+    "Repository",
+    "Store",
+    "DomainEventPublisher",
+    "IntegrationEventPublisher",
+];
+
+/// DCA-RS-008: the ports with I/O of an application crate answer asynchronously, and no application
+/// crate drives a future itself.
+pub(super) fn rs_008(ws: &Workspace) -> Vec<Violation> {
+    let mut out = vec![];
+    for d in ws.traits_with_role("OutputPort") {
+        if ws.layer_of_decl(d) != Some(Layer::Application)
+            || !IO_PORTS.iter().any(|r| ws.has_role(d, r))
+            || ws.has_role(d, "DomainGateway")
+            || ws.has_role(d, "DomainService")
+        {
+            continue;
+        }
+        let syn::Item::Trait(t) = ws.item(d) else {
+            continue;
+        };
+        let future_types: Vec<String> = t
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                syn::TraitItem::Type(a)
+                    if a.bounds.iter().any(|b| {
+                        matches!(b, syn::TypeParamBound::Trait(tb)
+                            if tb.path.segments.last().is_some_and(|s| FUTURES.contains(&s.ident.to_string().as_str())))
+                    }) =>
+                {
+                    Some(a.ident.to_string())
+                }
+                _ => None,
+            })
+            .collect();
+        for method in ws.trait_methods(d) {
+            let answers_later = method.sig.asyncness.is_some()
+                || match &method.sig.output {
+                    syn::ReturnType::Type(_, ty) => {
+                        let idents = super::type_idents(ty);
+                        idents.iter().any(|i| FUTURES.contains(&i.as_str()))
+                            || idents.iter().any(|i| future_types.contains(i))
+                    }
+                    syn::ReturnType::Default => false,
+                };
+            if !answers_later {
+                out.push(at_line(
+                    ws,
+                    "DCA-RS-008",
+                    method.module,
+                    &format!("{}::{}", ws.decl_name(d), method.name),
+                    method.line,
+                    "the port does I/O and answers synchronously; its method is async fn or returns a future (impl Future, BoxFuture) - the program drives it from outside the application",
+                ));
+            }
+        }
+    }
+    for m in ws
+        .project_modules()
+        .filter(|m| ws.module_layer(*m) == Some(Layer::Application))
+    {
+        for (t, line, text) in ws.module_targets(m) {
+            if let Target::External { krate, path } = &t
+                && drives_futures(krate, path)
+            {
+                out.push(at_line(
+                    ws,
+                    "DCA-RS-008",
+                    m,
+                    "",
+                    line,
+                    format!("`{text}` drives a future inside the application; the executor belongs to the composition root or an incoming adapter"),
+                ));
+            }
+        }
+    }
+    out
+}

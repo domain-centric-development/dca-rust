@@ -100,6 +100,40 @@ fn a_port_of_one_use_case_used_by_another_is_reported() {
     assert!(violations(&fixture("empty"), "DCA-USE-023").is_empty());
 }
 
+/// DCA-RS-008: a store method that answers synchronously and a hand-built waker are reported; an
+/// `async fn` and a `BoxFuture` pass, and so does a plain output port (no I/O role); switched off,
+/// the rule does not run.
+#[test]
+fn a_synchronous_port_and_an_executor_in_the_application_are_reported() {
+    let mut ws = fixture("violations");
+    let found = violations(&ws, "DCA-RS-008");
+    assert!(
+        found.iter().any(|v| v.contains("Files::files")),
+        "{found:?}"
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|v| v.contains("Files::later") || v.contains("Files::boxed")),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|v| v.contains("Waker::noop") && v.contains("drives a future")),
+        "{found:?}"
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|v| v.contains("Source::read") || v.contains("OwnLog::note")),
+        "a plain output port is no port with I/O: {found:?}"
+    );
+    assert!(violations(&fixture("empty"), "DCA-RS-008").is_empty());
+    ws.config.experimental = dca_rules::model::Experimental::Only(Default::default());
+    assert!(matches!(run(&ws, "DCA-RS-008"), Outcome::NotSwitchedOn));
+}
+
 /// Rules of doctrine alone: they select nothing and so find nothing anywhere.
 const DOCTRINE: &[&str] = &["DCA-LAY-001", "DCA-STR-010"];
 

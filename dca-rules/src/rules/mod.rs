@@ -207,6 +207,7 @@ define_rules! { $;
     dca_rs_004 => "DCA-RS-004" => rust::rs_004,
     dca_rs_006 => "DCA-RS-006" => rust::rs_006,
     dca_rs_007 => "DCA-RS-007" => rust::rs_007,
+    dca_rs_008 => "DCA-RS-008" => rust::rs_008,
 }
 
 // --- shared helpers -------------------------------------------------------------------------------

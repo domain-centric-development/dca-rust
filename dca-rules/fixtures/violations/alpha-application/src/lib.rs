@@ -573,3 +573,20 @@ pub mod check {
 
     impl<S: Source> InputPort for CheckUseCase<S> {}
 }
+
+/// DCA-RS-008: a store that answers synchronously, beside the two asynchronous forms that pass, and
+/// a hand-built waker inside the application.
+pub mod sync_store {
+    use dca_building_blocks::application::BoxFuture;
+    use dca_building_blocks::hexagonal::port_out::Store;
+
+    pub trait Files: Store {
+        fn files(&self, name: &str) -> std::io::Result<Vec<u8>>; // DCA-RS-008
+        async fn later(&self) -> u32;
+        fn boxed(&self) -> BoxFuture<'_, u32>;
+    }
+
+    pub fn drive() {
+        let _waker = std::task::Waker::noop(); // DCA-RS-008
+    }
+}
