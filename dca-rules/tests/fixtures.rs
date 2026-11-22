@@ -1,7 +1,8 @@
 //! Every implemented rule fires on the fixtures, and the roles the rules select by are found.
 //!
 //! `fixtures/violations` holds at least one violation per rule; `fixtures/undeclared` is a workspace
-//! without a context or a layer; `fixtures/conforming` follows every rule. None is ever built.
+//! without a context or a layer; `fixtures/empty` one without production code;
+//! `fixtures/conforming` follows every rule. None is ever built.
 
 use std::path::PathBuf;
 
@@ -40,6 +41,24 @@ fn every_implemented_rule_fires_on_a_fixture() {
         silent.is_empty(),
         "rules that found nothing in the fixtures: {silent:?}"
     );
+}
+
+/// A workspace without production code has nothing to declare: the two guards against an empty
+/// model pass there, while `fixtures/undeclared` - one struct, no declaration - keeps them red.
+#[test]
+fn a_workspace_without_production_code_passes_the_declaration_guards() {
+    let empty = fixture("empty");
+    let undeclared = fixture("undeclared");
+    for id in ["DCA-STR-011", "DCA-STR-012"] {
+        assert!(
+            violations(&empty, id).is_empty(),
+            "{id} fired on fixtures/empty"
+        );
+        assert!(
+            !violations(&undeclared, id).is_empty(),
+            "{id} silent on fixtures/undeclared"
+        );
+    }
 }
 
 /// Rules of doctrine alone: they select nothing and so find nothing anywhere.
@@ -976,4 +995,18 @@ fn the_rules_follow_renamed_modules_and_suffixes() {
     );
     let naming = violations(&ws, "DCA-NAM-001");
     assert!(naming.iter().all(|l| l.contains("*Service")), "{naming:?}");
+}
+
+/// On a workspace that holds no production code yet the whole suite is green.
+#[test]
+fn no_rule_finds_anything_in_a_workspace_without_production_code() {
+    let ws = fixture("empty");
+    let found: Vec<String> = rules::implemented()
+        .flat_map(|id| violations(&ws, id))
+        .collect();
+    assert!(
+        found.is_empty(),
+        "findings in a workspace without production code:\n{}",
+        found.join("\n")
+    );
 }

@@ -224,8 +224,8 @@ MAPPING = {
                      "No method takes &mut self and no field type is an interior-mutability type. Its fields may be pub - a deliberate Rust reading: an integration event is the published record another context reads and builds, its fields are its contract, and a value held by another crate cannot be changed through a shared reference."),
     "DCA-STR-010": m(LT, [], "Informational - selects nothing.",
                      "Nothing is asserted. Whether a consumed integration event is translated before it reaches the domain is a review check."),
-    "DCA-STR-011": m(LT, [G], "The workspace members.", "At least one crate carries a context in [package.metadata.dca]."),
-    "DCA-STR-012": m(LT, [G], "The workspace members.", "At least one crate carries one of the layers in [package.metadata.dca]."),
+    "DCA-STR-011": m(LT, [G], "The workspace members.", "At least one crate carries a context in [package.metadata.dca]. A workspace that holds no production code yet passes: no crate has an item outside #[cfg(test)] in the module tree of its library or binary target - test-only crates, and a library root that holds nothing but comments and test modules, are no production code. Once one such item exists, the rule fails until a context is declared, so a workspace whose crates miss the declaration still fails."),
+    "DCA-STR-012": m(LT, [G], "The workspace members.", "At least one crate carries one of the layers in [package.metadata.dca]. A workspace that holds no production code yet passes: no crate has an item outside #[cfg(test)] in the module tree of its library or binary target - test-only crates, and a library root that holds nothing but comments and test modules, are no production code. Once one such item exists, the rule fails until a layer is declared, so a workspace whose crates miss the declaration still fails."),
     "DCA-STR-013": m(LT, [S], "Traits in every events crate.",
                      "Each carries the IntegrationEvent role."),
     # --- context map -------------------------------------------------------------------------------------

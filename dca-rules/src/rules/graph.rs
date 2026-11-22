@@ -223,8 +223,16 @@ pub(super) fn str_006(ws: &Workspace) -> Vec<Violation> {
     )
 }
 
+/// Whether any workspace crate holds production code: an item outside `#[cfg(test)]` in the module
+/// tree of its library or binary target. A crate with test targets only, or whose library root holds
+/// nothing but comments and test modules (a crate that runs the architecture tests), holds none.
+fn holds_production_code(ws: &Workspace) -> bool {
+    ws.modules.iter().any(|m| !m.items.is_empty())
+}
+
+/// DCA-STR-011: at least one crate declares a context, once the workspace holds production code.
 pub(super) fn str_011(ws: &Workspace) -> Vec<Violation> {
-    if ws.crates.iter().any(|c| c.context.is_some()) {
+    if ws.crates.iter().any(|c| c.context.is_some()) || !holds_production_code(ws) {
         vec![]
     } else {
         vec![Violation {
@@ -236,8 +244,9 @@ pub(super) fn str_011(ws: &Workspace) -> Vec<Violation> {
     }
 }
 
+/// DCA-STR-012: at least one crate declares a layer, once the workspace holds production code.
 pub(super) fn str_012(ws: &Workspace) -> Vec<Violation> {
-    if ws.crates.iter().any(|c| c.layer.is_some()) {
+    if ws.crates.iter().any(|c| c.layer.is_some()) || !holds_production_code(ws) {
         vec![]
     } else {
         vec![Violation {

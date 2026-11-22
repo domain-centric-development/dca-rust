@@ -1,0 +1,8 @@
+# Never built: a workspace that holds no production code yet - one test crate, nothing else. The
+# rule suite reads it; DCA-STR-011 and DCA-STR-012 find nothing here.
+[workspace]
+resolver = "3"
+members = ["arch-tests"]
+
+[workspace.metadata.dca]
+experimental = "all"
