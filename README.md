@@ -84,7 +84,9 @@ through `&mut self`: it holds the boundary and what answers through `&self` — 
 gateway, the port of a foreign system no transaction covers — and takes the repositories, stores and the publisher from
 its unit on every call, reads included. `execute(&self)` stays the only way in, and no method of the use case takes
 `&mut self` (DCA-USE-021). The use case is built once, in the composition root, and serves every call — never
-cloned or created per call; only the transaction and the ports its unit hands out are per call. The work also borrows the
+cloned or created per call; so is every adapter. Per call there is only the transaction, and what its unit hands out
+is lent from the one adapter — `&'a mut` to it, or a thin view pairing it with the open transaction — never a new
+adapter. The work also borrows the
 use case itself — its clock, its id source, its domain services:
 
 ```rust
