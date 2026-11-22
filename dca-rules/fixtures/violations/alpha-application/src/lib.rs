@@ -590,3 +590,25 @@ pub mod sync_store {
         let _waker = std::task::Waker::noop(); // DCA-RS-008
     }
 }
+
+/// DCA-RS-009: a use case that copies itself per call and builds an adapter in its body.
+pub mod per_call {
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+    use dca_building_blocks::hexagonal::port_out::Store;
+
+    pub struct Shelf;
+
+    impl Store for Shelf {}
+
+    #[derive(Clone)]
+    pub struct PerCallUseCase;
+
+    impl InputPort for PerCallUseCase {}
+
+    impl PerCallUseCase {
+        pub fn run(&self) -> Self {
+            let _shelf = Shelf; // DCA-RS-009
+            self.clone() // DCA-RS-009
+        }
+    }
+}

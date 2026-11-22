@@ -374,3 +374,136 @@ pub(super) fn rs_008(ws: &Workspace) -> Vec<Violation> {
     }
     out
 }
+
+/// The roles of an adapter or another implementation behind a port: what a use case receives at
+/// construction or from its unit, never builds itself.
+const PORT_ROLES: &[&str] = &[
+    "OutputPort",
+    "Repository",
+    "Store",
+    "DomainEventPublisher",
+    "IntegrationEventPublisher",
+    "DomainGateway",
+];
+
+/// What a use case's method body does per call: copies itself, or names a path - a struct literal,
+/// a unit struct, a called function - whose resolution may be an adapter.
+#[derive(Default)]
+struct PerCall {
+    clones: Vec<usize>,
+    built: Vec<(syn::Path, usize)>,
+}
+
+fn is_self(e: &syn::Expr) -> bool {
+    match e {
+        syn::Expr::Path(p) => p.path.is_ident("self"),
+        syn::Expr::Reference(r) => is_self(&r.expr),
+        syn::Expr::Unary(u) => is_self(&u.expr),
+        syn::Expr::Paren(p) => is_self(&p.expr),
+        _ => false,
+    }
+}
+
+impl<'ast> syn::visit::Visit<'ast> for PerCall {
+    fn visit_expr_method_call(&mut self, e: &'ast syn::ExprMethodCall) {
+        if e.method == "clone" && e.args.is_empty() && is_self(&e.receiver) {
+            self.clones.push(e.method.span().start().line);
+        }
+        syn::visit::visit_expr_method_call(self, e);
+    }
+
+    fn visit_expr_call(&mut self, e: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(p) = &*e.func {
+            let last = p.path.segments.last().map(|s| s.ident.to_string());
+            if last.as_deref() == Some("clone")
+                && p.path.segments.len() > 1
+                && e.args.first().is_some_and(is_self)
+            {
+                self.clones
+                    .push(p.path.segments[0].ident.span().start().line);
+            }
+            self.built
+                .push((p.path.clone(), p.path.segments[0].ident.span().start().line));
+        }
+        syn::visit::visit_expr_call(self, e);
+    }
+
+    fn visit_expr_struct(&mut self, e: &'ast syn::ExprStruct) {
+        self.built
+            .push((e.path.clone(), e.path.segments[0].ident.span().start().line));
+        syn::visit::visit_expr_struct(self, e);
+    }
+
+    fn visit_expr_path(&mut self, e: &'ast syn::ExprPath) {
+        if e.qself.is_none() {
+            self.built
+                .push((e.path.clone(), e.path.segments[0].ident.span().start().line));
+        }
+        syn::visit::visit_expr_path(self, e);
+    }
+}
+
+/// The struct or enum of the workspace a path builds when it carries a port role: the type of a
+/// struct literal or a unit struct, or the type whose associated function (`new`, `default`, ...)
+/// the path calls.
+fn built_adapter(ws: &Workspace, m: usize, path: &syn::Path) -> Option<usize> {
+    let port = |d: usize| {
+        matches!(
+            ws.decls[d].kind,
+            crate::model::DeclKind::Struct | crate::model::DeclKind::Enum
+        ) && PORT_ROLES.iter().any(|r| ws.has_role(d, r))
+    };
+    if let Some(Target::Decl(d)) = ws.resolve_path(m, path)
+        && port(d)
+    {
+        return Some(d);
+    }
+    if path.segments.len() > 1 {
+        let mut prefix = path.clone();
+        prefix.segments.pop();
+        prefix.segments.pop_punct();
+        if let Some(Target::Decl(d)) = ws.resolve_path(m, &prefix)
+            && port(d)
+        {
+            return Some(d);
+        }
+    }
+    None
+}
+
+/// DCA-RS-009: a use case is built once and serves every call. No method of it copies the use case
+/// (`self.clone()`, `Clone::clone(self)`) or builds an adapter or another implementation behind a
+/// port itself; it receives them at construction or from its unit.
+pub(super) fn rs_009(ws: &Workspace) -> Vec<Violation> {
+    let mut out = vec![];
+    for d in ws.types_with_role("InputPort") {
+        if ws.is_building_block_decl(d) || ws.layer_of_decl(d) != Some(Layer::Application) {
+            continue;
+        }
+        let name = ws.decl_name(d).to_string();
+        for method in ws.methods(d) {
+            let Some(block) = method.block else { continue };
+            let mut v = PerCall::default();
+            syn::visit::Visit::visit_block(&mut v, block);
+            for line in v.clones {
+                out.push(at_line(ws, "DCA-RS-009", method.module, &format!("{name}::{}", method.name), line, format!(
+                    "use case `{name}` copies itself per call in `{}`; a use case is built once and serves every call - what a call needs comes from its unit",
+                    method.name
+                )));
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            for (path, line) in v.built {
+                if let Some(adapter) = built_adapter(ws, method.module, &path)
+                    && seen.insert(adapter)
+                {
+                    out.push(at_line(ws, "DCA-RS-009", method.module, &format!("{name}::{}", method.name), line, format!(
+                        "use case `{name}` builds `{}` in `{}`; an adapter is built once in the composition root and reaches the use case at construction or from its unit",
+                        ws.decl_name(adapter),
+                        method.name
+                    )));
+                }
+            }
+        }
+    }
+    out
+}

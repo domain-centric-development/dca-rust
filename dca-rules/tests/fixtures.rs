@@ -134,6 +134,26 @@ fn a_synchronous_port_and_an_executor_in_the_application_are_reported() {
     assert!(matches!(run(&ws, "DCA-RS-008"), Outcome::NotSwitchedOn));
 }
 
+/// DCA-RS-009: a use case copied per call and an adapter built in its body are reported; the
+/// conforming use cases, which take their ports from the unit, pass; switched off, it does not run.
+#[test]
+fn a_use_case_copied_per_call_or_building_an_adapter_is_reported() {
+    let mut ws = fixture("violations");
+    let found = violations(&ws, "DCA-RS-009");
+    assert!(
+        found.iter().any(|v| v.contains("copies itself per call")),
+        "{found:?}"
+    );
+    assert!(
+        found.iter().any(|v| v.contains("builds `Shelf`")),
+        "{found:?}"
+    );
+    assert!(violations(&fixture("conforming"), "DCA-RS-009").is_empty());
+    assert!(violations(&fixture("empty"), "DCA-RS-009").is_empty());
+    ws.config.experimental = dca_rules::model::Experimental::Only(Default::default());
+    assert!(matches!(run(&ws, "DCA-RS-009"), Outcome::NotSwitchedOn));
+}
+
 /// Rules of doctrine alone: they select nothing and so find nothing anywhere.
 const DOCTRINE: &[&str] = &["DCA-LAY-001", "DCA-STR-010"];
 

@@ -2637,6 +2637,22 @@
         "source-test"
       ],
       "implemented": true
+    },
+    {
+      "set": "rust",
+      "id": "DCA-RS-009",
+      "title": "A use case is built once and serves every call",
+      "rationale": "Use cases and the adapters behind their ports are singletons: the composition root builds each once and wires them together, as a container builds its components. Only what belongs to a call's scope exists per call - the transaction, and the ports its unit lends bound to it. A use case that copies itself per call, or builds an adapter in its own body, hides a second lifetime the composition root does not see and duplicates what should exist once.",
+      "selects": "Types with the input-port role in an application crate, and the bodies of the methods of their impl blocks - inherent and trait impls, closures and async blocks inside them included.",
+      "checks": "No body calls clone on the use case (self.clone(), (*self).clone(), Clone::clone(self)), and none builds a struct or enum of the workspace that carries the role OutputPort, Repository, Store, DomainEventPublisher, IntegrationEventPublisher or DomainGateway - a struct literal, a unit struct, or an associated function of it such as new or default, read through resolved paths. Values, commands and results carry none of these roles and pass; so does a transaction unit handing out ports, which is not a use case. Not seen: an adapter built through a generic parameter (L::new()), a function outside the workspace, or a macro. An empty selection passes.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
     }
   ]
 }
