@@ -2069,6 +2069,22 @@
       "implemented": true
     },
     {
+      "set": "usecase",
+      "id": "DCA-USE-023",
+      "title": "An output port declared in a use case's package is used by that use case only",
+      "rationale": "A port used by one use case stays with that use case; a port used by several belongs in the shared application package. A port declared in one use case's package and used by another ties the second to the first: it changes with a use case it does not belong to, grows methods only the other one calls, and hides that the port is shared",
+      "selects": "Traits with the OutputPort role declared in a use case module: the module of a struct or enum of an application crate with the input-port role or a name ending in UseCase, and every module below it - a module belongs to the deepest one. Traits in the shared module, in a feature module or at the crate root are not selected.",
+      "checks": "No module of another use case module, in any crate, names the trait - a use, a path in a signature, a bound or a body. Adapters, the shared module and modules outside a use case module are not counted. An empty selection passes.",
+      "implementation": "rust",
+      "status": "enforced",
+      "maturity": "experimental",
+      "category": "lint-test",
+      "enforcement": [
+        "source-test"
+      ],
+      "implemented": true
+    },
+    {
       "set": "naming",
       "id": "DCA-NAM-001",
       "title": "Application layer InputPort implementations must end with 'UseCase'",

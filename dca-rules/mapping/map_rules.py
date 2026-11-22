@@ -317,6 +317,8 @@ MAPPING = {
                      "No method of their impls takes &mut self, and no field holds interior mutability (Cell, RefCell, Mutex, RwLock, an atomic)."),
     "DCA-USE-022": m(LT, [S], "impl UseCase<I> blocks, read for their Output type, and the traits that extend UseCase<I, Output = O>.",
                      "O, or the success type of a Result it names, is none of String, &str, bool, char or a numeric primitive. () passes - a command with nothing to answer -, and so does a container such as Vec<String>."),
+    "DCA-USE-023": m(LT, [S], "Traits with the OutputPort role declared in a use case module: the module of a struct or enum of an application crate with the input-port role or a name ending in UseCase, and every module below it - a module belongs to the deepest one. Traits in the shared module, in a feature module or at the crate root are not selected.",
+                     "No module of another use case module, in any crate, names the trait - a use, a path in a signature, a bound or a body. Adapters, the shared module and modules outside a use case module are not counted. An empty selection passes."),
     # --- naming ------------------------------------------------------------------------------------------
     "DCA-NAM-001": m(LT, [S], "Types in application crates that implement an input port.", "The name ends with UseCase."),
     "DCA-NAM-002": m(NA, [], "", "", reason="Rust has no injectable stereotype attribute; bootstrap constructs use cases in code, so there is nothing to list."),

@@ -638,3 +638,74 @@ pub(super) fn use_018(ws: &Workspace) -> Vec<Violation> {
     }
     out
 }
+
+/// DCA-USE-023: an output port declared in a use case's module is used by that use case only. A
+/// use case module is the module of an operation - a struct or enum of an application crate with
+/// the input-port role or a name ending in the use-case suffix - and every module below it; a
+/// module belongs to the deepest one that contains it. The shared module is none.
+pub(super) fn use_023(ws: &Workspace) -> Vec<Violation> {
+    let mut roots: std::collections::BTreeMap<usize, BTreeSet<Vec<String>>> = Default::default();
+    for d in ws.type_decls() {
+        if ws.layer_of_decl(d) != Some(Layer::Application)
+            || !(ws.has_role(d, "InputPort")
+                || ws.decl_name(d).ends_with(&ws.config.suffixes.use_case))
+        {
+            continue;
+        }
+        let m = ws.decls[d].module;
+        roots
+            .entry(ws.modules[m].krate)
+            .or_default()
+            .insert(ws.modules[m].path.clone());
+    }
+    let use_case_of = |m: usize| -> Option<(usize, Vec<String>)> {
+        let module = &ws.modules[m];
+        if ws.in_shared(&module.path) {
+            return None;
+        }
+        roots
+            .get(&module.krate)?
+            .iter()
+            .filter(|r| !r.is_empty() && module.path.starts_with(r))
+            .max_by_key(|r| r.len())
+            .map(|r| (module.krate, r.clone()))
+    };
+    let name = |(k, path): &(usize, Vec<String>)| {
+        let mut segments = vec![ws.crates[*k].ident.clone()];
+        segments.extend(path.iter().cloned());
+        segments.join("::")
+    };
+    let mut users: std::collections::BTreeMap<usize, BTreeSet<String>> = Default::default();
+    for m in ws.project_modules() {
+        let Some(user) = use_case_of(m) else { continue };
+        for (t, _, _) in ws.module_targets(m) {
+            let Target::Decl(d) = t else { continue };
+            if ws.decls[d].kind != DeclKind::Trait
+                || ws.is_building_block_decl(d)
+                || !ws.has_role(d, "OutputPort")
+            {
+                continue;
+            }
+            let Some(home) = use_case_of(ws.decls[d].module) else {
+                continue;
+            };
+            if home != user {
+                users.entry(d).or_default().insert(name(&user));
+            }
+        }
+    }
+    users
+        .into_iter()
+        .map(|(d, others)| {
+            let home = use_case_of(ws.decls[d].module).map(|h| name(&h)).unwrap_or_default();
+            Violation {
+                rule: "DCA-USE-023",
+                location: ws.where_decl(d),
+                message: format!(
+                    "the output port is declared in the use case module {home} and used by {}; a port used by several use cases belongs in the shared module",
+                    others.into_iter().collect::<Vec<_>>().join(", ")
+                ),
+            }
+        })
+        .collect()
+}

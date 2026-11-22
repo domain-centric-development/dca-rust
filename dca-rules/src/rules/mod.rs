@@ -162,6 +162,7 @@ define_rules! { $;
     dca_use_019 => "DCA-USE-019" => usecase::use_019,
     dca_use_021 => "DCA-USE-021" => usecase::use_021,
     dca_use_022 => "DCA-USE-022" => usecase::use_022,
+    dca_use_023 => "DCA-USE-023" => usecase::use_023,
     dca_nam_001 => "DCA-NAM-001" => naming::nam_001,
     dca_nam_003 => "DCA-NAM-003" => naming::nam_003,
     dca_nam_004 => "DCA-NAM-004" => naming::nam_004,

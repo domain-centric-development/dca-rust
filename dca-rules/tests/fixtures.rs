@@ -84,6 +84,22 @@ fn a_generated_binary_is_no_production_code() {
     }
 }
 
+/// DCA-USE-023: the port of `install` that `check` uses is reported; the one only `install` uses,
+/// and the conforming fixture's shared ports, are not.
+#[test]
+fn a_port_of_one_use_case_used_by_another_is_reported() {
+    let found = violations(&fixture("violations"), "DCA-USE-023");
+    assert!(
+        found
+            .iter()
+            .any(|v| v.contains("install::Source") && v.contains("alpha_application::check")),
+        "{found:?}"
+    );
+    assert!(!found.iter().any(|v| v.contains("OwnLog")), "{found:?}");
+    assert!(violations(&fixture("conforming"), "DCA-USE-023").is_empty());
+    assert!(violations(&fixture("empty"), "DCA-USE-023").is_empty());
+}
+
 /// Rules of doctrine alone: they select nothing and so find nothing anywhere.
 const DOCTRINE: &[&str] = &["DCA-LAY-001", "DCA-STR-010"];
 

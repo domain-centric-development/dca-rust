@@ -539,3 +539,37 @@ pub mod usecases {
         }
     }
 }
+
+/// DCA-USE-023: a port declared in one use case's module and used by another; a port of the use
+/// case's own passes.
+pub mod install {
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+    use dca_building_blocks::hexagonal::port_out::OutputPort;
+
+    pub trait Source: OutputPort {
+        fn read(&self) -> u32;
+    }
+
+    pub trait OwnLog: OutputPort {
+        fn note(&self);
+    }
+
+    pub struct InstallUseCase<S: Source, L: OwnLog> {
+        pub source: S,
+        pub log: L,
+    }
+
+    impl<S: Source, L: OwnLog> InputPort for InstallUseCase<S, L> {}
+}
+
+pub mod check {
+    use dca_building_blocks::hexagonal::port_in::InputPort;
+
+    use crate::install::Source; // DCA-USE-023
+
+    pub struct CheckUseCase<S: Source> {
+        pub source: S,
+    }
+
+    impl<S: Source> InputPort for CheckUseCase<S> {}
+}
