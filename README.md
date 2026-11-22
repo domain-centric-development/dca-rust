@@ -79,7 +79,11 @@ repositories, stores, event publisher and inbox that take part in the open trans
 unit beside it, in one form (DCA-RS-007): every port a generic associated type over a lifetime, handed out by value
 (`Self::Things<'_>`). A store's adapter hands out a type of its own that borrows the transaction's connection; an
 adapter that owns its ports hands out `&'a mut` to one — a `&mut` to a port is the port, and a port trait of the
-application's own is implemented for the `&mut` by the adapter. The work also borrows the
+application's own is implemented for the `&mut` by the adapter. A use case therefore holds no port it would call
+through `&mut self`: it holds the boundary and what answers through `&self` — a clock, an id source, a domain service, a
+gateway, the port of a foreign system no transaction covers — and takes the repositories, stores and the publisher from
+its unit on every call, reads included. `execute(&self)` stays the only way in, and no method of the use case takes
+`&mut self` (DCA-USE-021). The work also borrows the
 use case itself — its clock, its id source, its domain services:
 
 ```rust

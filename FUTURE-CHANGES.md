@@ -113,6 +113,9 @@ that outweighs every project built on them.
   transaction boundary.
 - A transaction unit has one form: each port a generic associated type, handed out by value (`Self::Things<'_>`);
   it hands out repositories, stores and a domain-event publisher only (DCA-RS-007).
+- A use case holds no port it calls through `&mut self`: it takes the ports of its transaction from the unit on
+  every call and holds only the boundary and what answers through `&self` (a clock, an id source, a domain service, a
+  gateway, a foreign system's port no transaction covers). Its methods take `&self` (DCA-USE-021).
 - Event delivery after the commit - outbox, relay, inbox, ordering - is not a building block: no rule reads it, so it
   belongs to the adapters (the example keeps it in its shared kernel). The listener traits are the declaration
   DCA-HEX-017 reads; a record of the deliveries a listener received is a `Store`.
